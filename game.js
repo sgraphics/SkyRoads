@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { levels } from './levels.js';
 
 class Game {
     constructor() {
@@ -11,16 +12,19 @@ class Game {
         // Game state
         this.ship = null;
         this.track = [];
-        this.shipPosition = new THREE.Vector3(0, 0, 0);
+        this.shipPosition = new THREE.Vector3(0, 0.2, 0); // Start at track height
         this.shipRotation = 0;
         this.shipVelocity = new THREE.Vector3(0, 0, 0);
         this.isJumping = false;
         this.jumpVelocity = 0;
-        this.gameSpeed = 0.1;
+        this.gameSpeed = 0.4;
         this.forwardSpeed = 0.2; // Speed at which the ship moves forward
-        this.trackWidth = 2;
-        this.trackLength = 100;
+        this.trackWidth = 3; // Match the track width
         this.gameOver = false;
+        this.currentLevel = 0;
+        this.segmentHeight = 0.2; // Normal track height
+        this.raisedHeight = 1.0; // Height for raised blocks
+        this.tunnelHeight = 0.1; // Height for tunnels
 
         // Camera offset from ship (adjusted for better view)
         this.cameraOffset = new THREE.Vector3(0, 8, 15); // Increased height and distance
@@ -43,8 +47,8 @@ class Game {
         // Create ship
         this.createShip();
 
-        // Generate track
-        this.generateTrack();
+        // Generate track from level data
+        this.generateTrackFromLevel();
 
         // Set initial camera position
         this.updateCamera();
@@ -58,25 +62,57 @@ class Game {
         this.scene.add(this.ship);
     }
 
-    generateTrack() {
+    generateTrackFromLevel() {
+        const level = levels[this.currentLevel];
+        const lines = level.data.split('\n');
+        const trackWidth = 3; // Width of each track segment (was 1)
+        const trackLength = 3; // Length of each track segment (was 1)
         let currentZ = 0;
-        let gapProbability = 0.1; // 10% chance of a gap
 
-        for (let i = 0; i < this.trackLength; i++) {
-            // Skip creating track segment if it's a gap
-            if (Math.random() < gapProbability) {
-                currentZ += 1;
-                continue;
+        // Find start position
+        let startLine = lines.findIndex(line => line.includes('<start>'));
+        if (startLine === -1) startLine = lines.length - 1;
+
+        // Process each line from bottom to top
+        for (let y = startLine - 1; y >= 0; y--) {
+            const line = lines[y].trim();
+            if (line === '<end>' || line === '<start>') continue;
+
+            // Process each character in the line
+            for (let x = 0; x < line.length; x++) {
+                const char = line[x];
+                if (char === '.') continue; // Skip empty space
+
+                let height = this.segmentHeight;
+                let color = level.colors[char] || 0x808080;
+
+                // Determine track type and height
+                if (char === '7' || char === '8') {
+                    height = this.raisedHeight;
+                } else if (char === '5' || char === '6') {
+                    height = this.tunnelHeight;
+                }
+
+                // Create track segment
+                const geometry = new THREE.BoxGeometry(trackWidth, height, trackLength);
+                const material = new THREE.MeshPhongMaterial({ color: color });
+                const segment = new THREE.Mesh(geometry, material);
+                
+                // Position the segment
+                segment.position.set(
+                    (x - line.length / 2) * trackWidth,
+                    height / 2,
+                    -currentZ
+                );
+
+                this.scene.add(segment);
+                this.track.push({
+                    mesh: segment,
+                    type: char,
+                    position: segment.position.clone()
+                });
             }
-
-            const geometry = new THREE.BoxGeometry(this.trackWidth, 0.2, 1);
-            const material = new THREE.MeshPhongMaterial({ color: 0x808080 });
-            const segment = new THREE.Mesh(geometry, material);
-            segment.position.z = -currentZ;
-            this.scene.add(segment);
-            this.track.push(segment);
-
-            currentZ += 1;
+            currentZ += trackLength;
         }
     }
 
@@ -109,13 +145,13 @@ class Game {
 
     checkCollisions() {
         // Check if ship is too far left or right
-        if (Math.abs(this.shipPosition.x) > this.trackWidth / 2) {
+        if (Math.abs(this.shipPosition.x) > this.trackWidth * 1.5) { // Adjusted for wider track
             this.gameOver = true;
             return;
         }
 
         // Check if ship is too low (fell into gap)
-        if (this.shipPosition.y < 0) {
+        if (this.shipPosition.y < this.segmentHeight) {
             this.gameOver = true;
             return;
         }
@@ -151,11 +187,14 @@ class Game {
             this.shipPosition.y += this.jumpVelocity;
             this.jumpVelocity -= 0.01; // Gravity
 
-            if (this.shipPosition.y <= 0) {
-                this.shipPosition.y = 0;
+            if (this.shipPosition.y <= this.segmentHeight) {
+                this.shipPosition.y = this.segmentHeight;
                 this.isJumping = false;
                 this.jumpVelocity = 0;
             }
+        } else {
+            // Keep ship on track when not jumping
+            this.shipPosition.y = this.segmentHeight;
         }
 
         // Update ship position
