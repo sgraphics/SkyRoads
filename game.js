@@ -14,7 +14,7 @@ class Game {
         this.overlayScene = new THREE.Scene();
         
         // Create cameras for background and overlay
-        this.bgCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
+        this.bgCamera = new THREE.OrthographicCamera();
         this.overlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
 
         // Load textures
@@ -39,6 +39,8 @@ class Game {
         this.raisedHeight = 1.0; // Height for raised blocks
         this.tunnelHeight = 0.1; // Height for tunnels
         this.dashOverlay = null;
+        this.leftKeyPressed = false;  // Track left key state
+        this.rightKeyPressed = false; // Track right key state
 
         // Camera offset from ship (adjusted for better view)
         this.cameraOffset = new THREE.Vector3(0, 8, 15); // Increased height and distance
@@ -85,77 +87,82 @@ class Game {
         });
     }
     createBackground() {
-        // 1) Create an orthographic camera that spans -1..+1 in both axes
-        //    This gives a 2×2 "screen" in camera space.
-        this.bgCamera = new THREE.OrthographicCamera(
-            -1,  // left
-             1,  // right
-             1,  // top
-            -1,  // bottom
-             0,  // near
-             1   // far
-        );
+        // Create scene and camera
         this.bgScene = new THREE.Scene();
-    
-        // 2) Create a plane that is 2×2 in size, matching the camera's -1..+1 range
-        const planeGeometry = new THREE.PlaneGeometry(2, 2);
-    
-        // Make sure depthTest/write are disabled so it stays behind everything
-        const material = new THREE.MeshBasicMaterial({
+        this.bgCamera = new THREE.OrthographicCamera();
+
+        // Create base 1x1 plane - we'll scale it to cover the view
+        const planeGeometry = new THREE.PlaneGeometry(1, 1);
+        const planeMaterial = new THREE.MeshBasicMaterial({
             map: this.bgTexture,
             depthTest: false,
             depthWrite: false
         });
-    
-        const background = new THREE.Mesh(planeGeometry, material);
-        this.bgScene.add(background);
-    
-        // 3) Whenever the texture or window size changes, recalc plane scale
-        const updateBackgroundCover = () => {
-            if (!this.bgTexture.image) return;
-    
-            // imageAspect = width / height
-            const imageAspect = this.bgTexture.image.width / this.bgTexture.image.height;
-            // screenAspect = window width / window height
-            const screenAspect = window.innerWidth / window.innerHeight;
-    
-            // We will keep the plane's base size = 2×2, but scale it
-            // so that in *camera space* it has the correct aspect ratio
-            // and *covers* the entire -1..+1 range on both axes.
-    
-            // "Cover" logic:
-            // - If image is 'wider' than the screen (imageAspect > screenAspect),
-            //   fill the vertical dimension fully (height=2 in camera space),
-            //   and let the width overflow (width=2*imageAspect).
-            // - Else fill the horizontal dimension (width=2 in camera space),
-            //   and let the height overflow (height=2*(1/imageAspect)).
-    
-            if (imageAspect > screenAspect) {
-                // The limiting dimension is height => set plane height = 2
-                // so plane extends from -1..+1 in Y
-                // Then plane width = 2 * (imageAspect) => ratio = imageAspect
-                background.scale.set(imageAspect, 1, 1);
-            } else {
-                // The limiting dimension is width => set plane width = 2
-                // so plane extends from -1..+1 in X
-                // Then plane height = 2 * (1/imageAspect) => ratio = imageAspect
-                background.scale.set(1, 1 / imageAspect, 1);
-            }
-    
-            // If you have changed your bgCamera in some other way, update it:
+        const backgroundMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+        this.bgScene.add(backgroundMesh);
+
+        // Function to update orthographic camera to match window aspect
+        const updateOrthoCamera = () => {
+            const aspect = window.innerWidth / window.innerHeight;
+            
+            // Use height of 2 in camera space, width will be 2 * aspect
+            const frustumHeight = 2;
+            const frustumWidth = frustumHeight * aspect;
+
+            this.bgCamera.left = frustumWidth / -2;
+            this.bgCamera.right = frustumWidth / 2;
+            this.bgCamera.top = frustumHeight / 2;
+            this.bgCamera.bottom = frustumHeight / -2;
+            this.bgCamera.near = 0;
+            this.bgCamera.far = 1;
             this.bgCamera.updateProjectionMatrix();
         };
-    
-        // Update once texture is loaded
+
+        // Function to update background scaling to achieve 'cover' behavior
+        const updateBackgroundCover = () => {
+            if (!this.bgTexture.image) return;
+
+            // Get current camera dimensions
+            const camWidth = this.bgCamera.right - this.bgCamera.left;
+            const camHeight = this.bgCamera.top - this.bgCamera.bottom;
+            const cameraAspect = camWidth / camHeight;
+
+            // Get image aspect ratio
+            const imageAspect = this.bgTexture.image.width / this.bgTexture.image.height;
+
+            let planeWidth, planeHeight;
+
+            if (imageAspect > cameraAspect) {
+                // Image is wider than camera - fill vertically
+                planeHeight = camHeight;
+                planeWidth = planeHeight * imageAspect;
+            } else {
+                // Image is taller than camera - fill horizontally
+                planeWidth = camWidth;
+                planeHeight = planeWidth / imageAspect;
+            }
+
+            // Scale our 1x1 plane to the required dimensions
+            backgroundMesh.scale.set(planeWidth, planeHeight, 1);
+        };
+
+        // Initial setup
+        updateOrthoCamera();
+        
+        // Update when texture loads
         if (this.bgTexture.image) {
             updateBackgroundCover();
         } else {
-            // Some loaders let you listen for "load" or "update" events
-            this.bgTexture.addEventListener('load', updateBackgroundCover);
+            this.bgTexture.addEventListener('load', () => {
+                updateBackgroundCover();
+            });
         }
-    
+
         // Update on window resize
-        window.addEventListener('resize', updateBackgroundCover);
+        window.addEventListener('resize', () => {
+            updateOrthoCamera();
+            updateBackgroundCover();
+        });
     }
     
 
@@ -164,8 +171,12 @@ class Game {
         const imageAspect = this.dashTexture.image.width / this.dashTexture.image.height;
         const screenAspect = window.innerWidth / window.innerHeight;
         
-        // Always make width match screen width exactly
-        const dashWidth = 2 * screenAspect; // Full screen width
+        // Calculate max width in normalized coordinates
+        const maxPixelWidth = 1300;
+        const maxNormalizedWidth = (maxPixelWidth / window.innerWidth) * (2 * screenAspect);
+        
+        // Use the smaller of screen width or max width
+        const dashWidth = Math.min(2 * screenAspect, maxNormalizedWidth);
         // Calculate height to maintain aspect ratio
         const dashHeight = dashWidth / imageAspect;
         
@@ -182,6 +193,11 @@ class Game {
         // Position at bottom of screen, allowing it to extend below if needed
         this.dashOverlay.position.y = -1 + Math.min(dashHeight/2, maxHeight);
         
+        // Center horizontally if narrower than screen
+        if (dashWidth < 2 * screenAspect) {
+            this.dashOverlay.position.x = 0;
+        }
+        
         // Make camera match screen exactly
         this.overlayCamera.left = -screenAspect;
         this.overlayCamera.right = screenAspect;
@@ -194,9 +210,10 @@ class Game {
             if (!this.dashOverlay) return;
             
             const newScreenAspect = window.innerWidth / window.innerHeight;
+            const newMaxNormalizedWidth = (maxPixelWidth / window.innerWidth) * (2 * newScreenAspect);
             
-            // Always match screen width
-            const newWidth = 2 * newScreenAspect;
+            // Use the smaller of screen width or max width
+            const newWidth = Math.min(2 * newScreenAspect, newMaxNormalizedWidth);
             // Calculate height to maintain aspect ratio
             const newHeight = newWidth / imageAspect;
             
@@ -206,6 +223,11 @@ class Game {
             
             // Update position, allowing extension below screen
             this.dashOverlay.position.y = -1 + Math.min(newHeight/2, maxHeight);
+            
+            // Center horizontally if narrower than screen
+            if (newWidth < 2 * newScreenAspect) {
+                this.dashOverlay.position.x = 0;
+            }
             
             // Update camera to match screen exactly
             this.overlayCamera.left = -newScreenAspect;
@@ -284,10 +306,12 @@ class Game {
             
             switch (event.key) {
                 case 'ArrowLeft':
-                    this.shipRotation = Math.max(this.shipRotation - 0.1, -0.5);
+                    this.leftKeyPressed = true;
+                    this.shipRotation = -0.25;
                     break;
                 case 'ArrowRight':
-                    this.shipRotation = Math.min(this.shipRotation + 0.1, 0.5);
+                    this.rightKeyPressed = true;
+                    this.shipRotation = 0.25;
                     break;
                 case ' ':
                     if (!this.isJumping) {
@@ -299,13 +323,28 @@ class Game {
         });
 
         document.addEventListener('keyup', (event) => {
-            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                this.shipRotation = 0;
+            switch (event.key) {
+                case 'ArrowLeft':
+                    this.leftKeyPressed = false;
+                    if (!this.rightKeyPressed) {
+                        this.shipRotation = 0;
+                    } else {
+                        this.shipRotation = 0.25; // If right is still pressed
+                    }
+                    break;
+                case 'ArrowRight':
+                    this.rightKeyPressed = false;
+                    if (!this.leftKeyPressed) {
+                        this.shipRotation = 0;
+                    } else {
+                        this.shipRotation = -0.25; // If left is still pressed
+                    }
+                    break;
             }
         });
     }
 
-    checkCollisions() {
+    checkCollisions(shipCenter) {
         // Check if ship is too far left or right
         if (Math.abs(this.shipPosition.x) > this.trackWidth * 1.5) {
             this.gameOver = true;
@@ -318,13 +357,13 @@ class Game {
             return;
         }
 
-        // Check if ship is on a track segment
+        // Check if ship is on a track segment when not jumping
         if (!this.isJumping) {
             let isOnTrack = false;
             for (const segment of this.track) {
-                // Check if ship is within the bounds of a track segment
-                const dx = Math.abs(this.shipPosition.x - segment.position.x);
-                const dz = Math.abs(this.shipPosition.z - segment.position.z);
+                // Check if ship's center is within the bounds of a track segment
+                const dx = Math.abs(shipCenter.x - segment.position.x);
+                const dz = Math.abs(shipCenter.z - segment.position.z);
                 
                 // Track width is 3.5, length is 4.5
                 if (dx < 1.75 && dz < 2.25) { // Half of width and length
@@ -367,6 +406,10 @@ class Game {
         // Move ship forward
         this.shipPosition.z -= this.forwardSpeed;
 
+        // Calculate ship's center point (offset back by 1 unit since ship is 2 units long)
+        const shipCenter = this.shipPosition.clone();
+        shipCenter.z += 1;
+
         // Apply jumping physics
         if (this.isJumping) {
             this.shipPosition.y += this.jumpVelocity;
@@ -375,9 +418,9 @@ class Game {
             // Only reset jumping if we hit a track segment
             let hitTrack = false;
             for (const segment of this.track) {
-                // Check if ship is within the bounds of a track segment
-                const dx = Math.abs(this.shipPosition.x - segment.position.x);
-                const dz = Math.abs(this.shipPosition.z - segment.position.z);
+                // Check if ship's center is within the bounds of a track segment
+                const dx = Math.abs(shipCenter.x - segment.position.x);
+                const dz = Math.abs(shipCenter.z - segment.position.z);
                 
                 // Track width is 3.5, length is 4.5
                 if (dx < 1.75 && dz < 2.25 && this.shipPosition.y <= segment.position.y + 0.2) {
@@ -392,6 +435,19 @@ class Game {
             // If we didn't hit a track and we're falling, keep falling
             if (!hitTrack && this.jumpVelocity < 0) {
                 this.jumpVelocity -= 0.01; // Continue falling
+                
+                // Check if we've fallen through where a track should be
+                let isAboveTrack = false;
+                for (const segment of this.track) {
+                    const dx = Math.abs(shipCenter.x - segment.position.x);
+                    const dz = Math.abs(shipCenter.z - segment.position.z);
+                    
+                    // If we're above a track position but below its surface, we've fallen through
+                    if (dx < 1.75 && dz < 2.25 && this.shipPosition.y < segment.position.y) {
+                        this.gameOver = true;
+                        return;
+                    }
+                }
             }
         } else {
             // Keep ship on track when not jumping
@@ -404,8 +460,8 @@ class Game {
         // Update camera to follow ship
         this.updateCamera();
 
-        // Check for collisions
-        this.checkCollisions();
+        // Check for collisions using ship's center
+        this.checkCollisions(shipCenter);
     }
 
     restartGame() {
