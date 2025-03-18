@@ -295,16 +295,72 @@ class Game {
                 const x = columnIndex - 3;
                 const z = -index * 4.5;
                 
-                const segment = new THREE.Mesh(
-                    this.trackGeometry,
-                    new THREE.MeshPhongMaterial({ color: this.getBlockColor(block) })
-                );
-                
-                segment.position.set(x * 3.5, this.getBlockHeight(block), z);
-                segment.scale.set(3.5, this.getBlockHeight(block), 4.5);
-                
-                this.track.push(segment);
-                this.scene.add(segment);
+                if (block === '5' || block === '6') {
+                    const tunnelGroup = new THREE.Group();
+                    const tunnelColor = new THREE.Color(this.getBlockColor(block));
+                    const tunnelMaterial = new THREE.MeshPhongMaterial({ 
+                        color: tunnelColor,
+                        side: THREE.DoubleSide 
+                    });
+
+                    // Create outer and inner half-pipes
+                    const outerTunnelGeometry = new THREE.CylinderGeometry(1.75, 1.75, 4.5, 16, 1, true, 0, Math.PI);
+                    const innerTunnelGeometry = new THREE.CylinderGeometry(1.55, 1.55, 4.5, 16, 1, true, 0, Math.PI);
+                    const outerTunnel = new THREE.Mesh(outerTunnelGeometry, tunnelMaterial);
+                    const innerTunnel = new THREE.Mesh(innerTunnelGeometry, tunnelMaterial);
+
+                    // Create a single ring for each end using TorusGeometry
+                    const ringGeometry = new THREE.TorusGeometry(1.65, 0.1, 8, 16, Math.PI);
+                    const rightRing = new THREE.Mesh(ringGeometry, tunnelMaterial);
+
+                    // Position and rotate rings correctly
+                    rightRing.position.y = -2.25;
+                    
+                    // Rotate rings to match tunnel opening
+                    rightRing.rotation.x = -Math.PI / 2;
+                    rightRing.rotation.z = -Math.PI / 2;
+
+                    // Create darker floor
+                    const floorGeometry = new THREE.BoxGeometry(3.5, 0.2, 4.5);
+                    const darkerColor = new THREE.Color(
+                        tunnelColor.r * 0.6,
+                        tunnelColor.g * 0.6,
+                        tunnelColor.b * 0.6
+                    );
+                    const floorMaterial = new THREE.MeshPhongMaterial({ color: darkerColor });
+                    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+                    
+                    // Position floor
+                    floor.rotation.x = Math.PI / 2;
+                    floor.rotation.z = Math.PI / 2;
+                    floor.position.y = -1.75;
+                    
+                    // Add all parts
+                    tunnelGroup.add(outerTunnel);
+                    tunnelGroup.add(innerTunnel);
+                    tunnelGroup.add(rightRing);
+                    tunnelGroup.add(floor);
+                    
+                    // Final group positioning
+                    tunnelGroup.rotation.x = 0;
+                    tunnelGroup.rotation.y = -Math.PI / 2;
+                    tunnelGroup.rotation.z = Math.PI / 2;
+                    tunnelGroup.position.set(x * 3.5, this.getBlockHeight(block), z);
+                    
+                    this.track.push(tunnelGroup);
+                    this.scene.add(tunnelGroup);
+                } else {
+                    const segment = new THREE.Mesh(
+                        this.trackGeometry,
+                        new THREE.MeshPhongMaterial({ color: this.getBlockColor(block) })
+                    );
+                    
+                    segment.position.set(x * 3.5, this.getBlockHeight(block), z);
+                    segment.scale.set(3.5, this.getBlockHeight(block), 4.5);
+                    
+                    this.track.push(segment);
+                    this.scene.add(segment);
+                }
             });
         });
     }
@@ -399,19 +455,38 @@ class Game {
         if (!this.isJumping) {
             let isOnTrack = false;
             for (const segment of this.track) {
-                const dx = Math.abs(shipCenter.x - segment.position.x);
-                const dz = Math.abs(shipCenter.z - segment.position.z);
-                
-                // Track width is 3.5, length is 4.5
-                if (dx < 1.75 && dz < 2.25) {
-                    const segmentTop = segment.position.y + segment.scale.y;
-                    // If we're at the right height for this segment, we're on track
-                    if (Math.abs(this.shipPosition.y - segmentTop) < 0.3) {
+                if (segment.geometry instanceof THREE.CylinderGeometry) {
+                    // Tunnel collision logic
+                    const dx = Math.abs(shipCenter.x - segment.position.x);
+                    const dz = Math.abs(shipCenter.z - segment.position.z);
+                    
+                    // Check if we're above the tunnel
+                    if (dx < 1.75 && dz < 2.25 && this.shipPosition.y >= segment.position.y + 1.8) {
+                        isOnTrack = true;
+                        break;
+                    }
+                    
+                    // Check if we're inside the tunnel curve
+                    if (dx < 1.75 && dz < 2.25) {
+                        const dy = Math.abs(this.shipPosition.y - segment.position.y);
+                        const radius = 2;
+                        if (dx * dx + dy * dy <= radius * radius) {
+                            isOnTrack = true;
+                            break;
+                        }
+                    }
+                } else {
+                    // Normal block collision logic
+                    const dx = Math.abs(shipCenter.x - segment.position.x);
+                    const dz = Math.abs(shipCenter.z - segment.position.z);
+                    
+                    if (dx < 1.75 && dz < 2.25) {
                         isOnTrack = true;
                         break;
                     }
                 }
             }
+            
             if (!isOnTrack) {
                 // If not on track and not jumping, start falling
                 this.isJumping = true;
