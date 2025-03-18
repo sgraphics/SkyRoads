@@ -50,6 +50,10 @@ class Game {
         // Add this line to create the track geometry
         this.trackGeometry = new THREE.BoxGeometry(1, 1, 1);
 
+        // Add shadow properties
+        this.shadowMesh = null;
+        this.createShadow();
+
         // Move ship creation and positioning after level load
         this.init();
         this.setupControls();
@@ -386,7 +390,7 @@ class Game {
         }
 
         // Check if ship has fallen too low
-        if (this.shipPosition.y < -5) { // Allow falling below track but not too far
+        if (this.shipPosition.y < -5) {
             this.gameOver = true;
             return;
         }
@@ -394,18 +398,15 @@ class Game {
         // Check if ship is on a track segment when not jumping
         if (!this.isJumping) {
             let isOnTrack = false;
-            let hitRaisedBlock = false;
             for (const segment of this.track) {
                 const dx = Math.abs(shipCenter.x - segment.position.x);
                 const dz = Math.abs(shipCenter.z - segment.position.z);
                 
-                // Check if we're trying to drive onto a raised block
+                // Track width is 3.5, length is 4.5
                 if (dx < 1.75 && dz < 2.25) {
-                    if (segment.position.y > this.segmentHeight) {
-                        // Hit raised block while driving - game over
-                        this.gameOver = true;
-                        return;
-                    } else {
+                    const segmentTop = segment.position.y + segment.scale.y;
+                    // If we're at the right height for this segment, we're on track
+                    if (Math.abs(this.shipPosition.y - segmentTop) < 0.3) {
                         isOnTrack = true;
                         break;
                     }
@@ -429,6 +430,51 @@ class Game {
         this.camera.rotation.x = -Math.PI / 6; // 30-degree downward angle (was 45)
         this.camera.rotation.y = 0;
         this.camera.rotation.z = 0;
+    }
+
+    createShadow() {
+        // Create a flat circle for the shadow
+        const shadowGeometry = new THREE.CircleGeometry(0.5, 16);
+        const shadowMaterial = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.3,
+            depthWrite: false
+        });
+        this.shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
+        this.shadowMesh.rotation.x = -Math.PI / 2; // Lay flat
+        this.scene.add(this.shadowMesh);
+    }
+
+    updateShadow() {
+        if (!this.shadowMesh) return;
+
+        // Start with shadow hidden
+        this.shadowMesh.visible = false;
+
+        // Check for blocks below the ship
+        const shipCenter = this.shipPosition.clone();
+        shipCenter.z += 1;
+
+        for (const segment of this.track) {
+            const dx = Math.abs(shipCenter.x - segment.position.x);
+            const dz = Math.abs(shipCenter.z - segment.position.z);
+            
+            // If we're above a block
+            if (dx < 1.75 && dz < 2.25) {
+                const segmentTop = segment.position.y + segment.scale.y;
+                
+                // Show shadow only if ship is above the block
+                if (this.shipPosition.y > segmentTop) {
+                    this.shadowMesh.visible = true;
+                    // Position shadow on top of the block
+                    this.shadowMesh.position.x = this.shipPosition.x;
+                    this.shadowMesh.position.y = segmentTop + 0.01; // Slightly above block to prevent z-fighting
+                    this.shadowMesh.position.z = this.shipPosition.z;
+                    break;
+                }
+            }
+        }
     }
 
     updateShip() {
@@ -511,6 +557,9 @@ class Game {
 
         // Check for collisions using ship's center
         this.checkCollisions(shipCenter);
+
+        // Add shadow update at the end
+        this.updateShadow();
     }
 
     restartGame() {
