@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { levels } from './levels.js?v=1';
 
 class Game {
     constructor() {
@@ -34,7 +33,7 @@ class Game {
         this.forwardSpeed = 0.2; // Speed at which the ship moves forward
         this.trackWidth = 7; // Updated to match actual track width
         this.gameOver = false;
-        this.currentLevel = 0;
+        this.currentLevel = 1;
         this.segmentHeight = 0.2; // Normal track height
         this.raisedHeight = 1.0; // Height for raised blocks
         this.tunnelHeight = 0.1; // Height for tunnels
@@ -45,9 +44,33 @@ class Game {
         // Camera offset from ship (adjusted for better view)
         this.cameraOffset = new THREE.Vector3(0, 8, 15); // Increased height and distance
 
+        this.currentLevel = 1;
+        this.levelData = null;
+
+        // Add this line to create the track geometry
+        this.trackGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+        // Move ship creation and positioning after level load
         this.init();
         this.setupControls();
+        this.loadLevel(); // This will now handle ship positioning
         this.animate();
+    }
+
+    async loadLevel() {
+        try {
+            const response = await fetch(`assets/${this.currentLevel}.txt`);
+            this.levelData = await response.text();
+            this.generateTrackFromLevel();
+            
+            // Position ship at start of track after generation
+            this.shipPosition.set(0, this.segmentHeight, 0);
+            this.ship.position.copy(this.shipPosition);
+            this.updateCamera();
+            
+        } catch (error) {
+            console.error('Error loading level:', error);
+        }
     }
 
     init() {
@@ -66,18 +89,11 @@ class Game {
         // Create background first
         this.createBackground();
 
-        // Create ship
+        // Create ship (but don't position it yet)
         this.createShip();
 
-        // Generate track from level data
-        this.generateTrackFromLevel();
-
-        // Set initial ship position
-        this.shipPosition.set(0, this.segmentHeight, 0);
-        this.ship.position.copy(this.shipPosition);
-
-        // Set initial camera position
-        this.updateCamera();
+        // Remove ship positioning from here since track isn't loaded yet
+        // The loadLevel() method will handle this after track generation
 
         // Handle window resizing
         window.addEventListener('resize', () => {
@@ -252,58 +268,69 @@ class Game {
     }
 
     generateTrackFromLevel() {
-        const level = levels[this.currentLevel];
-        const lines = level.data.split('\n');
-        const trackWidth = 3.5; // Width of each track segment (half of 7)
-        const trackLength = 4.5; // Length of each track segment (increased from 3)
-        let currentZ = 0;
-
-        // Find start position
-        let startLine = lines.findIndex(line => line.includes('<start>'));
-        if (startLine === -1) startLine = lines.length - 1;
-
-        // Process each line from bottom to top
-        for (let y = startLine - 1; y >= 0; y--) {
-            const line = lines[y].trim();
-            if (line === '<end>' || line === '<start>') continue;
-
-            // Process each character in the line
-            for (let x = 0; x < line.length; x++) {
-                const char = line[x];
-                if (char === '.') continue; // Skip empty space
-
-                let height = this.segmentHeight;
-                let color = level.colors[char] || 0x808080;
-
-                // Determine track type and height
-                if (char === '7' || char === '8') {
-                    height = this.raisedHeight;
-                } else if (char === '5' || char === '6') {
-                    height = this.tunnelHeight;
-                }
-
-                // Create track segment
-                const geometry = new THREE.BoxGeometry(trackWidth, height, trackLength);
-                const material = new THREE.MeshPhongMaterial({ color: color });
-                const segment = new THREE.Mesh(geometry, material);
+        if (!this.levelData) return;
+        
+        // Split into rows and filter out any lines containing < > tags
+        const rows = this.levelData.trim()
+            .split('\n')
+            .filter(row => !row.includes('<'))
+            .reverse();
+        
+        const trackWidth = 7;
+        
+        rows.forEach((row, index) => {
+            // Ensure row is exactly 7 characters, padding with spaces if shorter
+            const paddedRow = row.padEnd(trackWidth, ' ');
+            // Take only first 7 characters in case it's longer
+            const blocks = paddedRow.slice(0, trackWidth).split('');
+            
+            blocks.forEach((block, columnIndex) => {
+                // Skip if it's a space, dot, or any other non-track character
+                if (block === ' ' || block === '.' || !/[0-9]/.test(block)) return;
                 
-                // Position the segment - center it on the 7-unit wide track
-                // x=3 should be at position 0 (middle of track)
-                const xPos = (x - 3) * trackWidth;
-                segment.position.set(
-                    xPos,
-                    height / 2,
-                    -currentZ
+                const x = columnIndex - 3;
+                const z = -index * 4.5;
+                
+                const segment = new THREE.Mesh(
+                    this.trackGeometry,
+                    new THREE.MeshPhongMaterial({ color: this.getBlockColor(block) })
                 );
-
+                
+                segment.position.set(x * 3.5, this.getBlockHeight(block), z);
+                segment.scale.set(3.5, this.getBlockHeight(block), 4.5);
+                
+                this.track.push(segment);
                 this.scene.add(segment);
-                this.track.push({
-                    mesh: segment,
-                    type: char,
-                    position: segment.position.clone()
-                });
-            }
-            currentZ += trackLength; // Using new track length for Z positioning
+            });
+        });
+    }
+
+    getBlockColor(block) {
+        const colors = {
+            '1': 0x98FB98, // Pastel green
+            '2': 0xFFB6C1, // Pastel pink
+            '3': 0xAFEEEE, // Pastel turquoise
+            '4': 0xFFDAB9, // Peach
+            '5': 0xB0C4DE, // Pastel blue (tunnel)
+            '6': 0x8794BF, // Lighter pastel blue (tunnel)
+            '7': 0xFFFACD, // Pastel yellow (raised block)
+            '8': 0xFFE4B5, // Pastel orange (raised block)
+            '9': 0xFFB6B6, // Pastel red (speed up)
+            '0': 0x98FB98  // Pastel green (slow down)
+        };
+        return colors[block] || 0xFFFFFF;
+    }
+
+    getBlockHeight(block) {
+        switch (block) {
+            case '5':
+            case '6':
+                return 0.1; // Tunnel height
+            case '7':
+            case '8':
+                return 1.0; // Raised block height
+            default:
+                return 0.2; // Normal track height
         }
     }
 
@@ -367,15 +394,21 @@ class Game {
         // Check if ship is on a track segment when not jumping
         if (!this.isJumping) {
             let isOnTrack = false;
+            let hitRaisedBlock = false;
             for (const segment of this.track) {
-                // Check if ship's center is within the bounds of a track segment
                 const dx = Math.abs(shipCenter.x - segment.position.x);
                 const dz = Math.abs(shipCenter.z - segment.position.z);
                 
-                // Track width is 3.5, length is 4.5
-                if (dx < 1.75 && dz < 2.25) { // Half of width and length
-                    isOnTrack = true;
-                    break;
+                // Check if we're trying to drive onto a raised block
+                if (dx < 1.75 && dz < 2.25) {
+                    if (segment.position.y > this.segmentHeight) {
+                        // Hit raised block while driving - game over
+                        this.gameOver = true;
+                        return;
+                    } else {
+                        isOnTrack = true;
+                        break;
+                    }
                 }
             }
             if (!isOnTrack) {
@@ -425,13 +458,14 @@ class Game {
             // Only reset jumping if we hit a track segment
             let hitTrack = false;
             for (const segment of this.track) {
-                // Check if ship's center is within the bounds of a track segment
                 const dx = Math.abs(shipCenter.x - segment.position.x);
                 const dz = Math.abs(shipCenter.z - segment.position.z);
                 
-                // Track width is 3.5, length is 4.5
-                if (dx < 1.75 && dz < 2.25 && this.shipPosition.y <= segment.position.y + 0.2) {
-                    this.shipPosition.y = segment.position.y + 0.2;
+                const segmentTop = segment.position.y + segment.scale.y;
+                if (dx < 1.75 && dz < 2.25 && 
+                    this.shipPosition.y <= segmentTop + 0.2 && 
+                    this.shipPosition.y > segmentTop - 0.5) {
+                    this.shipPosition.y = segmentTop;
                     this.isJumping = false;
                     this.jumpVelocity = 0;
                     hitTrack = true;
@@ -439,26 +473,34 @@ class Game {
                 }
             }
 
-            // If we didn't hit a track and we're falling, keep falling
             if (!hitTrack && this.jumpVelocity < 0) {
                 this.jumpVelocity -= 0.01; // Continue falling
+            }
+        } else {
+            // When not jumping, check if we're on a track
+            let isOnTrack = false;
+            let currentHeight = this.segmentHeight;
+
+            for (const segment of this.track) {
+                const dx = Math.abs(shipCenter.x - segment.position.x);
+                const dz = Math.abs(shipCenter.z - segment.position.z);
                 
-                // Check if we've fallen through where a track should be
-                let isAboveTrack = false;
-                for (const segment of this.track) {
-                    const dx = Math.abs(shipCenter.x - segment.position.x);
-                    const dz = Math.abs(shipCenter.z - segment.position.z);
-                    
-                    // If we're above a track position but below its surface, we've fallen through
-                    if (dx < 1.75 && dz < 2.25 && this.shipPosition.y < segment.position.y) {
-                        this.gameOver = true;
-                        return;
+                if (dx < 1.75 && dz < 2.25) {
+                    const segmentTop = segment.position.y + segment.scale.y;
+                    if (Math.abs(this.shipPosition.y - segmentTop) < 0.3) {
+                        currentHeight = segmentTop;
+                        isOnTrack = true;
+                        break;
                     }
                 }
             }
-        } else {
-            // Keep ship on track when not jumping
-            this.shipPosition.y = this.segmentHeight;
+
+            if (!isOnTrack) {
+                this.isJumping = true;
+                this.jumpVelocity = -0.1;
+            } else {
+                this.shipPosition.y = currentHeight;
+            }
         }
 
         // Update ship position
@@ -481,7 +523,7 @@ class Game {
 
         // Clear existing track
         for (const segment of this.track) {
-            this.scene.remove(segment.mesh);
+            this.scene.remove(segment);
         }
         this.track = [];
 
