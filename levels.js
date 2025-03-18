@@ -34,16 +34,16 @@ export const levels = [
 <start>
         `.trim(),
         colors: {
-            '1': 0x808080, // Gray
-            '2': 0x404040, // Dark gray
-            '3': 0x606060, // Medium gray
-            '4': 0x707070, // Light gray
-            '5': 0x0000ff, // Blue tunnel
-            '6': 0x0000aa, // Dark blue tunnel
-            '7': 0xffff00, // Yellow raised block
-            '8': 0xffaa00, // Orange raised block
-            '9': 0xff0000, // Red (speed up)
-            '0': 0x00ff00  // Green (slow down)
+            '1': 0x98FB98, // Pastel green
+            '2': 0xFFB6C1, // Pastel pink
+            '3': 0xAFEEEE, // Pastel turquoise
+            '4': 0xFFDAB9, // Peach
+            '5': 0xB0C4DE, // Pastel blue (tunnel)
+            '6': 0x8794BF, // Lighter pastel blue (tunnel)
+            '7': 0xFFFACD, // Pastel yellow (raised block)
+            '8': 0xFFE4B5, // Pastel orange (raised block)
+            '9': 0xFFB6B6, // Pastel red (speed up)
+            '0': 0x98FB98  // Pastel green (slow down)
         }
     },
     {
@@ -65,16 +65,16 @@ export const levels = [
 <start>
         `.trim(),
         colors: {
-            '1': 0x808080,
-            '2': 0x404040,
-            '3': 0x606060,
-            '4': 0x707070,
-            '5': 0x0000ff,
-            '6': 0x0000aa,
-            '7': 0xffff00,
-            '8': 0xffaa00,
-            '9': 0xff0000,
-            '0': 0x00ff00
+            '1': 0x98FB98,
+            '2': 0xFFB6C1,
+            '3': 0xAFEEEE,
+            '4': 0xFFDAB9,
+            '5': 0xB0C4DE,
+            '6': 0x8794BF,
+            '7': 0xFFFACD,
+            '8': 0xFFE4B5,
+            '9': 0xFFB6B6,
+            '0': 0x98FB98
         }
     }
 ]; 

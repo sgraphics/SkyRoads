@@ -146,7 +146,7 @@ class Game {
             backgroundMesh.scale.set(planeWidth, planeHeight, 1);
         };
 
-        // Initial setup
+        // Initial camera setup
         updateOrthoCamera();
         
         // Update when texture loads
@@ -154,9 +154,16 @@ class Game {
             updateBackgroundCover();
         } else {
             this.bgTexture.addEventListener('load', () => {
-                updateBackgroundCover();
+                updateOrthoCamera(); // Ensure camera is set up
+                updateBackgroundCover(); // Then update background scaling
             });
         }
+
+        // Force an immediate update after a short delay to ensure texture is loaded
+        setTimeout(() => {
+            updateOrthoCamera();
+            updateBackgroundCover();
+        }, 100);
 
         // Update on window resize
         window.addEventListener('resize', () => {
