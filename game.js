@@ -65,6 +65,12 @@ class Game {
 
         // Add this new property
         this.isInTunnel = false;
+
+        // Add this new property for debris pieces
+        this.explosionDebris = [];
+        this.exhaustFlames = [];
+        this.gameOverText = null; // Add this for the game over text
+        this.gameOverFadeInterval = null; // Add this to track the fade animation
     }
 
     async loadLevel() {
@@ -250,6 +256,9 @@ class Game {
         this.overlayCamera.updateProjectionMatrix();
         
         this.overlayScene.add(this.dashOverlay);
+
+        // Create game over text (hidden initially)
+        this.createGameOverText();
 
         // Update dash on window resize
         window.addEventListener('resize', () => {
@@ -440,7 +449,17 @@ class Game {
 
     setupControls() {
         document.addEventListener('keydown', (event) => {
-            if (this.gameOver || this.isInTunnel) return;  // Ignore controls if in tunnel
+            // Handle controls differently if game is over
+            if (this.gameOver) {
+                if (event.key === ' ') {
+                    // Restart the game when spacebar is pressed
+                    this.restartGame();
+                }
+                return;
+            }
+            
+            // Normal gameplay controls (don't apply if in tunnel)
+            if (this.isInTunnel) return;
             
             switch (event.key) {
                 case 'ArrowLeft':
@@ -486,12 +505,14 @@ class Game {
     checkCollisions(shipCenter) {
         // Check if ship is too far left or right
         if (Math.abs(this.shipPosition.x) > this.trackWidth * 1.5) {
+            this.createExplosionEffect();  // Add explosion effect
             this.gameOver = true;
             return;
         }
 
         // Check if ship has fallen too low
         if (this.shipPosition.y < -5) {
+            this.createExplosionEffect();  // Add explosion effect
             this.gameOver = true;
             return;
         }
@@ -599,9 +620,8 @@ class Game {
 
     updateShip() {
         if (this.gameOver) {
-            if (confirm('Game Over! Click OK to restart or Cancel to quit.')) {
-                this.restartGame();
-            }
+            // Don't show popup, just animate the gameOverText
+            // The restart will now be handled by the spacebar event
             return;
         }
 
@@ -636,6 +656,7 @@ class Game {
                         
                         console.log(`Ship Y: ${this.shipPosition.y}, Tunnel Top Y: ${tunnelTopY}`);
                         console.log("Crashed into top of tunnel!");
+                        this.createExplosionEffect();  // Add explosion effect
                         this.gameOver = true;
                         return;
                     }
@@ -658,6 +679,7 @@ class Game {
                             // If we're too close to the edge
                             if (distFromCenter > safeWidth) {
                                 console.log("Crashed into tunnel side edge!");
+                                this.createExplosionEffect();  // Add explosion effect
                                 this.gameOver = true;
                                 return;
                             }
@@ -778,34 +800,169 @@ class Game {
         this.updateShadow();
     }
 
-    restartGame() {
-        // Reset game state
-        this.gameOver = false;
-        this.shipRotation = 0;
-        this.shipVelocity = new THREE.Vector3(0, 0, 0);
-        this.isJumping = false;
-        this.jumpVelocity = 0;
-
-        // Clear existing track
-        for (const segment of this.track) {
-            this.scene.remove(segment);
+    createExplosionEffect() {
+        // Make sure explosionDebris exists
+        if (!this.explosionDebris) {
+            this.explosionDebris = [];
         }
-        this.track = [];
+        
+        // Hide the ship
+        this.ship.visible = false;
+        
+        // Create a flash of light
+        const flashGeometry = new THREE.SphereGeometry(1, 16, 16);
+        const flashMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xffff00,
+            transparent: true,
+            opacity: 1.0
+        });
+        const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+        flash.position.copy(this.shipPosition);
+        this.scene.add(flash);
+        
+        // Create debris pieces
+        const debrisCount = 20;
+        const colors = [0xff0000, 0xff6600, 0xffff00, 0x00ff00]; // Red, orange, yellow, green
+        
+        for (let i = 0; i < debrisCount; i++) {
+            // Create various shaped debris
+            let geometry;
+            const randomShape = Math.floor(Math.random() * 4);
+            
+            switch (randomShape) {
+                case 0:
+                    geometry = new THREE.TetrahedronGeometry(0.2 + Math.random() * 0.3);
+                    break;
+                case 1:
+                    geometry = new THREE.BoxGeometry(0.2 + Math.random() * 0.3, 0.2 + Math.random() * 0.3, 0.2 + Math.random() * 0.3);
+                    break;
+                case 2:
+                    geometry = new THREE.ConeGeometry(0.2 + Math.random() * 0.2, 0.4 + Math.random() * 0.3, 4);
+                    break;
+                default:
+                    geometry = new THREE.SphereGeometry(0.1 + Math.random() * 0.2);
+            }
+            
+            // Random color from the explosion palette
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const material = new THREE.MeshPhongMaterial({ 
+                color: color,
+                emissive: color,
+                emissiveIntensity: 0.5,
+                transparent: true,
+                opacity: 1.0
+            });
+            
+            const debris = new THREE.Mesh(geometry, material);
+            
+            // Position at ship's location
+            debris.position.copy(this.shipPosition);
+            
+            // Random velocity in all directions
+            const speed = 0.1 + Math.random() * 0.3;
+            const direction = new THREE.Vector3(
+                (Math.random() - 0.5) * 2,
+                (Math.random() - 0.5) * 2,
+                (Math.random() - 0.5) * 2
+            ).normalize();
+            
+            // Store velocity and rotation info in the userData
+            debris.userData = {
+                velocity: direction.multiplyScalar(speed),
+                rotationAxis: new THREE.Vector3(
+                    Math.random() - 0.5,
+                    Math.random() - 0.5,
+                    Math.random() - 0.5
+                ).normalize(),
+                rotationSpeed: Math.random() * 0.2,
+                age: 0,
+                maxAge: 60 + Math.random() * 60, // 1-2 seconds at 60fps
+            };
+            
+            this.explosionDebris.push(debris);
+            this.scene.add(debris);
+        }
+        
+        // Animate the flash fading out
+        let flashFrames = 0;
+        const flashAnimation = setInterval(() => {
+            flashFrames++;
+            flash.scale.set(1 + flashFrames * 0.2, 1 + flashFrames * 0.2, 1 + flashFrames * 0.2);
+            flash.material.opacity = 1 - (flashFrames / 10);
+            
+            if (flashFrames >= 10) {
+                clearInterval(flashAnimation);
+                this.scene.remove(flash);
+            }
+        }, 16); // Roughly 60fps
 
-        // Generate new track
-        this.generateTrackFromLevel();
-
-        // Reset ship position
-        this.shipPosition.set(0, this.segmentHeight, 0);
-        this.ship.position.copy(this.shipPosition);
-
-        // Reset camera
-        this.updateCamera();
+        // Show game over text with fade-in animation
+        if (this.gameOverText) {
+            // Make sure the text is visible before fading in
+            this.gameOverText.visible = true;
+            
+            // Clear any existing fade animation first
+            if (this.gameOverFadeInterval) {
+                clearInterval(this.gameOverFadeInterval);
+                this.gameOverFadeInterval = null;
+            }
+            
+            this.gameOverText.material.opacity = 0;
+            
+            // Animate fade-in after a short delay to let explosion be visible first
+            setTimeout(() => {
+                // Animate opacity from 0 to 1 over 1 second
+                const fadeInSteps = 20;
+                let step = 0;
+                
+                this.gameOverFadeInterval = setInterval(() => {
+                    step++;
+                    this.gameOverText.material.opacity = step / fadeInSteps;
+                    
+                    if (step >= fadeInSteps) {
+                        clearInterval(this.gameOverFadeInterval);
+                        this.gameOverFadeInterval = null;
+                    }
+                }, 50);
+            }, 1500); // 1.5 second delay
+        }
     }
 
     animate() {
         requestAnimationFrame(() => this.animate());
+        
         this.updateShip();
+        
+        // Make sure explosionDebris exists and update it if it does
+        if (this.explosionDebris && this.explosionDebris.length > 0) {
+            for (let i = this.explosionDebris.length - 1; i >= 0; i--) {
+                const debris = this.explosionDebris[i];
+                
+                // Update position
+                debris.position.add(debris.userData.velocity);
+                
+                // Apply gravity
+                debris.userData.velocity.y -= 0.005;
+                
+                // Rotate the debris
+                debris.rotateOnAxis(debris.userData.rotationAxis, debris.userData.rotationSpeed);
+                
+                // Age the debris
+                debris.userData.age++;
+                
+                // Fade out as it ages
+                if (debris.userData.age > debris.userData.maxAge * 0.7) {
+                    const fadeRatio = 1 - ((debris.userData.age - (debris.userData.maxAge * 0.7)) / (debris.userData.maxAge * 0.3));
+                    debris.material.opacity = fadeRatio;
+                }
+                
+                // Remove if too old
+                if (debris.userData.age >= debris.userData.maxAge) {
+                    this.scene.remove(debris);
+                    this.explosionDebris.splice(i, 1);
+                }
+            }
+        }
         
         // Clear with black
         this.renderer.setClearColor(0x000000, 1);
@@ -823,6 +980,117 @@ class Game {
             this.renderer.render(this.overlayScene, this.overlayCamera);
         }
         this.renderer.autoClear = true;
+    }
+
+    restartGame() {
+        // Clear any ongoing fade animation
+        if (this.gameOverFadeInterval) {
+            clearInterval(this.gameOverFadeInterval);
+            this.gameOverFadeInterval = null;
+        }
+        
+        // Hide game over text
+        if (this.gameOverText) {
+            this.gameOverText.material.opacity = 0;
+            this.gameOverText.visible = false; // Also set visibility to false
+        }
+        
+        // Reset game state
+        this.gameOver = false;
+        this.shipRotation = 0;
+        this.shipVelocity = new THREE.Vector3(0, 0, 0);
+        this.isJumping = false;
+        this.jumpVelocity = 0;
+
+        // Clear existing track
+        for (const segment of this.track) {
+            this.scene.remove(segment);
+        }
+        this.track = [];
+        
+        // Clear any remaining debris
+        if (this.explosionDebris) {
+            for (const debris of this.explosionDebris) {
+                this.scene.remove(debris);
+            }
+            this.explosionDebris = [];
+        } else {
+            this.explosionDebris = [];
+        }
+        
+        // Make ship visible again
+        this.ship.visible = true;
+
+        // Generate new track
+        this.generateTrackFromLevel();
+
+        // Reset ship position
+        this.shipPosition.set(0, this.segmentHeight, 0);
+        this.ship.position.copy(this.shipPosition);
+
+        // Reset camera
+        this.updateCamera();
+
+        // Show game over text only when needed
+        if (this.gameOverText) {
+            this.gameOverText.visible = false;
+        }
+    }
+
+    // Add this new method to create the game over text
+    createGameOverText() {
+        // Create a canvas to render text
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = 1024;
+        canvas.height = 256;
+        
+        // Draw background rectangle
+        context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw border
+        context.strokeStyle = '#FF0000';
+        context.lineWidth = 8;
+        context.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+        
+        // Draw text
+        context.font = 'bold 72px Arial';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillStyle = '#FF0000';
+        context.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 40);
+        
+        context.font = 'bold 36px Arial';
+        context.fillStyle = '#FFFFFF';
+        context.fillText('Press SPACE to restart', canvas.width / 2, canvas.height / 2 + 40);
+        
+        // Create texture from canvas
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        
+        // Create material and geometry
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0,
+            depthTest: false,
+            depthWrite: false
+        });
+        
+        // Size the text to look good on screen (adjust to fit your needs)
+        const screenAspect = window.innerWidth / window.innerHeight;
+        const width = 1.5;
+        const height = width * (canvas.height / canvas.width);
+        
+        const geometry = new THREE.PlaneGeometry(width, height);
+        this.gameOverText = new THREE.Mesh(geometry, material);
+        
+        // Position it center of screen
+        this.gameOverText.position.set(0, 0, 0);
+        
+        // Add to overlay scene
+        this.overlayScene.add(this.gameOverText);
     }
 }
 
