@@ -367,16 +367,16 @@ class Game {
 
     getBlockColor(block) {
         const colors = {
-            '1': 0x98FB98, // Pastel green
-            '2': 0xFFB6C1, // Pastel pink
-            '3': 0xAFEEEE, // Pastel turquoise
-            '4': 0xFFDAB9, // Peach
-            '5': 0xB0C4DE, // Pastel blue (tunnel)
-            '6': 0x8794BF, // Lighter pastel blue (tunnel)
-            '7': 0xFFFACD, // Pastel yellow (raised block)
-            '8': 0xFFE4B5, // Pastel orange (raised block)
-            '9': 0xFFB6B6, // Pastel red (speed up)
-            '0': 0x98FB98  // Pastel green (slow down)
+            '1': 0xFF69B4, // Hot pink (was FFB6C1)
+            '2': 0x32CD32, // Lime green (was 98FB98)
+            '3': 0x00CED1, // Dark turquoise (was AFEEEE)
+            '4': 0xFFA500, // Orange (was FFDAB9)
+            '5': 0x4169E1, // Royal blue for tunnel (was B0C4DE)
+            '6': 0x1E90FF, // Dodger blue for tunnel (was 8794BF)
+            '7': 0xFFD700, // Gold for raised block (was FFFACD)
+            '8': 0xFF8C00, // Dark orange for raised block (was FFE4B5)
+            '9': 0xFF4500, // Orange red for speed up (was FFB6B6)
+            '0': 0x00FF00  // Pure green for slow down (was 98FB98)
         };
         return colors[block] || 0xFFFFFF;
     }
