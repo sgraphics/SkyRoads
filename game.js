@@ -206,21 +206,42 @@ class Game {
         // Initial camera setup
         updateOrthoCamera();
         
-        // Update when texture loads
+        // IMPORTANT FIX: Make sure the texture is properly loaded and scaled
         if (this.bgTexture.image) {
+            // If image is already loaded, update the cover right away
             updateBackgroundCover();
         } else {
+            // If image is not loaded yet, add an event listener
             this.bgTexture.addEventListener('load', () => {
-                updateOrthoCamera(); // Ensure camera is set up
-                updateBackgroundCover(); // Then update background scaling
+                // When texture loads, force an immediate update
+                updateOrthoCamera();
+                updateBackgroundCover();
             });
         }
 
-        // Force an immediate update after a short delay to ensure texture is loaded
+        // Also add a guaranteed update call with a slight delay
         setTimeout(() => {
             updateOrthoCamera();
             updateBackgroundCover();
-        }, 100);
+        }, 100);  // 100ms should be enough for most texture loads
+
+        // Create a more thorough retry mechanism for the background
+        let retryCount = 0;
+        const maxRetries = 10;
+        const retryInterval = setInterval(() => {
+            retryCount++;
+            
+            if (this.bgTexture.image && this.bgTexture.image.width > 0) {
+                // Texture is properly loaded, update scaling
+                updateOrthoCamera();
+                updateBackgroundCover();
+                clearInterval(retryInterval);
+            } else if (retryCount >= maxRetries) {
+                // Give up after max retries
+                clearInterval(retryInterval);
+                console.warn('Background texture did not load properly after multiple attempts');
+            }
+        }, 200);  // Check every 200ms
 
         // Update on window resize
         window.addEventListener('resize', () => {
