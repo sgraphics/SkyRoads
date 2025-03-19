@@ -4,7 +4,10 @@ class Game {
     constructor() {
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.renderer = new THREE.WebGLRenderer();
+        this.renderer = new THREE.WebGLRenderer({ 
+            antialias: true,
+            alpha: true 
+        });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         document.getElementById('game-container').appendChild(this.renderer.domElement);
 
@@ -82,8 +85,8 @@ class Game {
         this.renderer.setClearColor(0x000000, 1);
 
         // Add ambient light (only for main game scene)
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        this.scene.add(ambientLight);
+        const ambient = new THREE.AmbientLight(0xffffff, 0.1);
+        this.scene.add(ambient);
 
         // Add directional light (only for main game scene)
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
@@ -105,6 +108,17 @@ class Game {
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        // Adjust renderer output for sRGB
+        this.renderer.outputEncoding = THREE.sRGBEncoding;
+
+        // If you prefer manually controlling gamma
+        this.renderer.gammaFactor = 2.2;
+        this.renderer.gammaOutput = true; // Deprecated in newer Three.js, use outputEncoding
+
+        // Disable tone mapping
+        this.renderer.toneMapping = THREE.NoToneMapping;
+        this.renderer.toneMappingExposure = 1; // or adjust as you like
     }
     createBackground() {
         // Create scene and camera
@@ -118,6 +132,7 @@ class Game {
             depthTest: false,
             depthWrite: false
         });
+        planeMaterial.map.encoding = THREE.sRGBEncoding;
         const backgroundMesh = new THREE.Mesh(planeGeometry, planeMaterial);
         this.bgScene.add(backgroundMesh);
 
@@ -215,6 +230,7 @@ class Game {
             depthWrite: false,
             color: 0xffffff
         });
+        planeMaterial.map.encoding = THREE.sRGBEncoding;
         this.dashOverlay = new THREE.Mesh(planeGeometry, planeMaterial);
         
         // Position at bottom of screen, allowing it to extend below if needed
