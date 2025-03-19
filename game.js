@@ -110,7 +110,7 @@ class Game {
         });
 
         // Adjust renderer output for sRGB
-        this.renderer.outputEncoding = THREE.sRGBEncoding;
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         // If you prefer manually controlling gamma
         this.renderer.gammaFactor = 2.2;
@@ -132,7 +132,7 @@ class Game {
             depthTest: false,
             depthWrite: false
         });
-        planeMaterial.map.encoding = THREE.sRGBEncoding;
+        planeMaterial.map.colorSpace = THREE.SRGBColorSpace;
         const backgroundMesh = new THREE.Mesh(planeGeometry, planeMaterial);
         this.bgScene.add(backgroundMesh);
 
@@ -230,7 +230,7 @@ class Game {
             depthWrite: false,
             color: 0xffffff
         });
-        planeMaterial.map.encoding = THREE.sRGBEncoding;
+        planeMaterial.map.colorSpace = THREE.SRGBColorSpace;
         this.dashOverlay = new THREE.Mesh(planeGeometry, planeMaterial);
         
         // Position at bottom of screen, allowing it to extend below if needed
