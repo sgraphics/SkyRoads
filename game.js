@@ -32,9 +32,9 @@ class Game {
         this.shipVelocity = new THREE.Vector3(0, 0, 0);
         this.isJumping = false;
         this.jumpVelocity = 0;
-        this.gameSpeed = 0.4;
-        this.forwardSpeed = 0.2; // Speed at which the ship moves forward
-        this.trackWidth = 7; // Updated to match actual track width
+        this.gameSpeed = 0.6; // Set to middle value (between 0.4 and 0.8)
+        this.forwardSpeed = 0.3; // Set to middle value (between 0.2 and 0.4)
+        this.trackWidth = 7;
         this.gameOver = false;
         this.currentLevel = 1;
         this.segmentHeight = 0.2; // Normal track height
@@ -61,7 +61,6 @@ class Game {
         this.init();
         this.setupControls();
         this.loadLevel(); // This will now handle ship positioning
-        this.animate();
 
         // Add this new property
         this.isInTunnel = false;
@@ -71,6 +70,17 @@ class Game {
         this.exhaustFlames = [];
         this.gameOverText = null; // Add this for the game over text
         this.gameOverFadeInterval = null; // Add this to track the fade animation
+
+        // Add these properties for time-based movement
+        this.lastTime = 0;
+        this.fixedTimeStep = 16; // ~60fps
+        this.timeAccumulator = 0;
+        this.baseSpeed = {
+            forward: 0.35,    // Middle ground between 0.2 and 0.5
+            rotation: 0.35,   // Middle ground between 0.25 and 0.5
+            jump: 0.4,        // Middle ground between 0.3 and 0.5
+            gravity: 0.015    // Middle ground between 0.01 and 0.02
+        };
     }
 
     async loadLevel() {
@@ -128,6 +138,9 @@ class Game {
         // Disable tone mapping
         this.renderer.toneMapping = THREE.NoToneMapping;
         this.renderer.toneMappingExposure = 1; // or adjust as you like
+
+        // Start animation loop with timestamp
+        requestAnimationFrame((time) => this.animate(time));
     }
     createBackground() {
         // Create scene and camera
@@ -473,7 +486,7 @@ class Game {
                 case ' ':
                     if (!this.isJumping) {
                         this.isJumping = true;
-                        this.jumpVelocity = 0.3;
+                        this.jumpVelocity = this.baseSpeed.jump; // Use our new middle ground value
                     }
                     break;
             }
@@ -620,8 +633,6 @@ class Game {
 
     updateShip() {
         if (this.gameOver) {
-            // Don't show popup, just animate the gameOverText
-            // The restart will now be handled by the spacebar event
             return;
         }
 
@@ -700,6 +711,7 @@ class Game {
         // Apply controls based on whether we're in a tunnel or not
         if (!this.isInTunnel) {
             // Update ship position based on rotation and velocity (normal controls)
+            // Note that we now use the time factor to scale movement
             this.shipVelocity.x = this.shipRotation * this.gameSpeed;
             this.shipPosition.x += this.shipVelocity.x;
         } else {
@@ -928,27 +940,84 @@ class Game {
         }
     }
 
-    animate() {
-        requestAnimationFrame(() => this.animate());
+    // Simplify the fixed update to avoid extra calculations
+    fixedUpdate(deltaTime) {
+        // Use a simple scaling factor
+        const timeFactor = 1.0; 
         
+        // Set speeds directly
+        this.forwardSpeed = this.baseSpeed.forward;
+        
+        // Only update these if not in tunnel
+        if (!this.isInTunnel) {
+            if (this.leftKeyPressed) {
+                this.shipRotation = -this.baseSpeed.rotation;
+            } else if (this.rightKeyPressed) {
+                this.shipRotation = this.baseSpeed.rotation;
+            } else {
+                this.shipRotation = 0;
+            }
+        }
+        
+        // Use fixed gravity value
+        if (this.isJumping && !this.isInTunnel) {
+            this.jumpVelocity -= this.baseSpeed.gravity;
+        }
+        
+        // Update the ship
         this.updateShip();
+    }
+
+    // Simplify the animate function to reduce overhead
+    animate(currentTime) {
+        // Initialize lastTime on first call
+        if (!this.lastTime) this.lastTime = currentTime;
         
-        // Make sure explosionDebris exists and update it if it does
+        // Calculate time since last frame
+        const deltaTime = currentTime - this.lastTime;
+        this.lastTime = currentTime;
+        
+        // Run update directly for better performance
+        this.fixedUpdate(deltaTime);
+        
+        // Animate exhaust flames if they exist and the ship is visible
+        if (this.exhaustFlames && this.exhaustFlames.length > 0 && this.ship.visible) {
+            const time = currentTime * 0.001; // Current time in seconds
+            
+            for (const flame of this.exhaustFlames) {
+                // Create a pulsing effect for each flame
+                const pulseValue = Math.sin(time * flame.userData.pulseSpeed + flame.userData.pulseOffset) * flame.userData.pulseFactor;
+                
+                // Scale the flame based on the pulse (1 ± pulseFactor)
+                const scaleX = flame.userData.originalScale.x * (1 + pulseValue);
+                const scaleY = flame.userData.originalScale.y * (1 + pulseValue * 0.5);
+                flame.scale.set(scaleX, scaleY, 1);
+            }
+        }
+        
+        // Update explosion debris if any exists
         if (this.explosionDebris && this.explosionDebris.length > 0) {
+            // Scale debris velocity by delta time
+            const debrisTimeFactor = deltaTime / (1000/60);
+            
             for (let i = this.explosionDebris.length - 1; i >= 0; i--) {
                 const debris = this.explosionDebris[i];
                 
-                // Update position
-                debris.position.add(debris.userData.velocity);
+                // Scale movement by time
+                const scaledVelocity = debris.userData.velocity.clone().multiplyScalar(debrisTimeFactor);
+                debris.position.add(scaledVelocity);
                 
-                // Apply gravity
-                debris.userData.velocity.y -= 0.005;
+                // Apply gravity with time scaling
+                debris.userData.velocity.y -= 0.005 * debrisTimeFactor;
                 
-                // Rotate the debris
-                debris.rotateOnAxis(debris.userData.rotationAxis, debris.userData.rotationSpeed);
+                // Rotate the debris with time scaling
+                debris.rotateOnAxis(
+                    debris.userData.rotationAxis, 
+                    debris.userData.rotationSpeed * debrisTimeFactor
+                );
                 
                 // Age the debris
-                debris.userData.age++;
+                debris.userData.age += debrisTimeFactor;
                 
                 // Fade out as it ages
                 if (debris.userData.age > debris.userData.maxAge * 0.7) {
@@ -980,6 +1049,9 @@ class Game {
             this.renderer.render(this.overlayScene, this.overlayCamera);
         }
         this.renderer.autoClear = true;
+        
+        // Continue animation loop
+        requestAnimationFrame((time) => this.animate(time));
     }
 
     restartGame() {
