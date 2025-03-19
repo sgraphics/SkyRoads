@@ -594,6 +594,10 @@ class Game {
         const wasInTunnel = this.isInTunnel;
         let nowInTunnel = false;
         let tunnelCenterX = 0;
+        let tunnelBlock = null;
+        let tunnelFloorY = 0;
+        let tunnelTopY = 0;
+        let tunnelHeight = 0;
         
         // Check if we're on a tunnel block and if we're at the edge
         for (const segment of this.track) {
@@ -604,6 +608,10 @@ class Game {
                 if (segment.userData && segment.userData.isTunnelBlock) {
                     nowInTunnel = true;
                     tunnelCenterX = segment.position.x;
+                    tunnelBlock = segment;
+                    tunnelFloorY = segment.position.y + segment.scale.y; // Floor level
+                    tunnelHeight = 1.75 * 2; // Diameter of tunnel (2 * radius)
+                    tunnelTopY = tunnelFloorY + tunnelHeight; // Top of tunnel
                     
                     // Only check for edge collision when first entering the tunnel
                     if (!wasInTunnel) {
@@ -634,10 +642,38 @@ class Game {
             }
         }
 
+        // First, handle tunnel entry - determine if we should go on top or inside
+        if (!wasInTunnel && nowInTunnel && tunnelBlock) {
+            // If we're high enough (above or at tunnel height), we should land on top
+            // Otherwise, we should go inside the tunnel
+            console.log("Entering tunnel:", {
+                shipY: this.shipPosition.y,
+                tunnelFloorY: tunnelFloorY,
+                tunnelTopY: tunnelTopY,
+                tunnelHeight: tunnelHeight
+            });
+            
+            const tunnelCeilingHeight = tunnelFloorY + tunnelHeight;
+            
+            // Check if we're high enough to go on top of tunnel
+            if (this.shipPosition.y > tunnelCeilingHeight - 0.5) { // Allow some margin
+                // We're above tunnel, treat as normal block surface
+                console.log("Going on top of tunnel");
+                nowInTunnel = false; // Not considered inside tunnel
+            } else {
+                // We're going inside tunnel - ensure we're on the floor
+                console.log("Going inside tunnel");
+                // If in mid-air or jumping, cancel jump and place on floor
+                this.isJumping = false;
+                this.jumpVelocity = 0;
+                this.shipPosition.y = tunnelFloorY;
+            }
+        }
+
         // Update tunnel state
         this.isInTunnel = nowInTunnel;
 
-        // Apply controls only if not in tunnel
+        // Apply controls based on whether we're in a tunnel or not
         if (!this.isInTunnel) {
             // Update ship position based on rotation and velocity (normal controls)
             this.shipVelocity.x = this.shipRotation * this.gameSpeed;
@@ -647,6 +683,9 @@ class Game {
             // Smoothly move toward center (slow centering effect)
             this.shipPosition.x = this.shipPosition.x * 0.9 + tunnelCenterX * 0.1;
             
+            // Ensure we're at floor level if inside tunnel
+            this.shipPosition.y = tunnelFloorY;
+            
             // Override ship rotation to face forward
             this.shipRotation = 0;
         }
@@ -654,41 +693,40 @@ class Game {
         // Move ship forward (always happens)
         this.shipPosition.z -= this.forwardSpeed;
 
-        // Apply jumping physics
+        // Apply jumping physics ONLY if not in tunnel
         if (this.isJumping) {
-            // Only allow jumping if not in tunnel
             if (!this.isInTunnel) {
                 this.shipPosition.y += this.jumpVelocity;
                 this.jumpVelocity -= 0.01; // Gravity
+
+                // Only reset jumping if we hit a track segment
+                let hitTrack = false;
+                for (const segment of this.track) {
+                    const dx = Math.abs(shipCenter.x - segment.position.x);
+                    const dz = Math.abs(shipCenter.z - segment.position.z);
+                    
+                    const segmentTop = segment.position.y + segment.scale.y;
+                    if (dx < 1.75 && dz < 2.25 && 
+                        this.shipPosition.y <= segmentTop + 0.2 && 
+                        this.shipPosition.y > segmentTop - 0.5) {
+                        this.shipPosition.y = segmentTop;
+                        this.isJumping = false;
+                        this.jumpVelocity = 0;
+                        hitTrack = true;
+                        break;
+                    }
+                }
+
+                if (!hitTrack && this.jumpVelocity < 0) {
+                    this.jumpVelocity -= 0.01; // Continue falling
+                }
             } else {
-                // In tunnel - cancel jump
+                // In tunnel - cancel any jumping
                 this.isJumping = false;
                 this.jumpVelocity = 0;
             }
-
-            // Only reset jumping if we hit a track segment
-            let hitTrack = false;
-            for (const segment of this.track) {
-                const dx = Math.abs(shipCenter.x - segment.position.x);
-                const dz = Math.abs(shipCenter.z - segment.position.z);
-                
-                const segmentTop = segment.position.y + segment.scale.y;
-                if (dx < 1.75 && dz < 2.25 && 
-                    this.shipPosition.y <= segmentTop + 0.2 && 
-                    this.shipPosition.y > segmentTop - 0.5) {
-                    this.shipPosition.y = segmentTop;
-                    this.isJumping = false;
-                    this.jumpVelocity = 0;
-                    hitTrack = true;
-                    break;
-                }
-            }
-
-            if (!hitTrack && this.jumpVelocity < 0) {
-                this.jumpVelocity -= 0.01; // Continue falling
-            }
-        } else {
-            // When not jumping, check if we're on a track
+        } else if (!this.isInTunnel) {
+            // When not jumping and not in tunnel, check if we're on a track
             let isOnTrack = false;
             let currentHeight = this.segmentHeight;
 
