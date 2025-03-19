@@ -62,6 +62,9 @@ class Game {
         this.setupControls();
         this.loadLevel(); // This will now handle ship positioning
         this.animate();
+
+        // Add this new property
+        this.isInTunnel = false;
     }
 
     async loadLevel() {
@@ -312,6 +315,26 @@ class Game {
                 const z = -index * 4.5;
                 
                 if (block === '5' || block === '6') {
+                    // Create a normal block for collision detection first
+                    const floorSegment = new THREE.Mesh(
+                        this.trackGeometry,
+                        new THREE.MeshPhongMaterial({ 
+                            color: new THREE.Color(this.getBlockColor(block)).multiplyScalar(0.6)
+                        })
+                    );
+                    
+                    // Position and scale the floor block
+                    floorSegment.position.set(x * 3.5, this.getBlockHeight(block), z);
+                    floorSegment.scale.set(3.5, this.getBlockHeight(block), 4.5);
+                    
+                    // Mark this as a tunnel floor for special handling
+                    floorSegment.userData.isTunnelBlock = true;
+                    
+                    // Add the floor block to track for collision detection
+                    this.track.push(floorSegment);
+                    this.scene.add(floorSegment);
+                    
+                    // Now create the visual tunnel on top of the floor
                     const tunnelGroup = new THREE.Group();
                     const tunnelColor = new THREE.Color(this.getBlockColor(block));
                     const tunnelMaterial = new THREE.MeshPhongMaterial({ 
@@ -336,26 +359,12 @@ class Game {
                     rightRing.rotation.x = -Math.PI / 2;
                     rightRing.rotation.z = -Math.PI / 2;
 
-                    // Create darker floor
-                    const floorGeometry = new THREE.BoxGeometry(3.5, 0.2, 4.5);
-                    const darkerColor = new THREE.Color(
-                        tunnelColor.r * 0.6,
-                        tunnelColor.g * 0.6,
-                        tunnelColor.b * 0.6
-                    );
-                    const floorMaterial = new THREE.MeshPhongMaterial({ color: darkerColor });
-                    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-                    
-                    // Position floor
-                    floor.rotation.x = Math.PI / 2;
-                    floor.rotation.z = Math.PI / 2;
-                    floor.position.y = -1.75;
+                    // We don't need a separate floor since we have a block below
                     
                     // Add all parts
                     tunnelGroup.add(outerTunnel);
                     tunnelGroup.add(innerTunnel);
                     tunnelGroup.add(rightRing);
-                    tunnelGroup.add(floor);
                     
                     // Final group positioning
                     tunnelGroup.rotation.x = 0;
@@ -363,7 +372,7 @@ class Game {
                     tunnelGroup.rotation.z = Math.PI / 2;
                     tunnelGroup.position.set(x * 3.5, this.getBlockHeight(block), z);
                     
-                    this.track.push(tunnelGroup);
+                    // Add tunnel visuals to scene (but not to track array since we don't need collision)
                     this.scene.add(tunnelGroup);
                 } else {
                     const segment = new THREE.Mesh(
@@ -412,7 +421,7 @@ class Game {
 
     setupControls() {
         document.addEventListener('keydown', (event) => {
-            if (this.gameOver) return;
+            if (this.gameOver || this.isInTunnel) return;  // Ignore controls if in tunnel
             
             switch (event.key) {
                 case 'ArrowLeft':
@@ -433,20 +442,21 @@ class Game {
         });
 
         document.addEventListener('keyup', (event) => {
+            // Always capture key up events to prevent keys getting "stuck"
             switch (event.key) {
                 case 'ArrowLeft':
                     this.leftKeyPressed = false;
-                    if (!this.rightKeyPressed) {
+                    if (!this.rightKeyPressed && !this.isInTunnel) {
                         this.shipRotation = 0;
-                    } else {
+                    } else if (!this.isInTunnel) {
                         this.shipRotation = 0.25; // If right is still pressed
                     }
                     break;
                 case 'ArrowRight':
                     this.rightKeyPressed = false;
-                    if (!this.leftKeyPressed) {
+                    if (!this.leftKeyPressed && !this.isInTunnel) {
                         this.shipRotation = 0;
-                    } else {
+                    } else if (!this.isInTunnel) {
                         this.shipRotation = -0.25; // If left is still pressed
                     }
                     break;
@@ -576,21 +586,85 @@ class Game {
             return;
         }
 
-        // Update ship position based on rotation and velocity
-        this.shipVelocity.x = this.shipRotation * this.gameSpeed;
-        this.shipPosition.x += this.shipVelocity.x;
-
-        // Move ship forward
-        this.shipPosition.z -= this.forwardSpeed;
-
         // Calculate ship's center point (offset back by 1 unit since ship is 2 units long)
         const shipCenter = this.shipPosition.clone();
         shipCenter.z += 1;
 
+        // Store previous tunnel state before updating
+        const wasInTunnel = this.isInTunnel;
+        let nowInTunnel = false;
+        let tunnelCenterX = 0;
+        
+        // Check if we're on a tunnel block and if we're at the edge
+        for (const segment of this.track) {
+            const dx = Math.abs(shipCenter.x - segment.position.x);
+            const dz = Math.abs(shipCenter.z - segment.position.z);
+            
+            if (dx < 1.75 && dz < 2.25) {
+                if (segment.userData && segment.userData.isTunnelBlock) {
+                    nowInTunnel = true;
+                    tunnelCenterX = segment.position.x;
+                    
+                    // Only check for edge collision when first entering the tunnel
+                    if (!wasInTunnel) {
+                        // Calculate width-wise edges (tunnel width is 3.5 units as set in scaling)
+                        const tunnelWidth = 3.5;
+                        const tunnelEdgeSize = tunnelWidth * 0.2; // 20% of tunnel width
+                        
+                        // Calculate distance from center to determine if at edge
+                        const distFromCenter = Math.abs(shipCenter.x - segment.position.x);
+                        const safeWidth = (tunnelWidth / 2) - tunnelEdgeSize;
+                        
+                        // If we're too close to the edge (but not in center)
+                        if (distFromCenter > safeWidth) {
+                            // If we're entering the tunnel from the side, game over
+                            console.log("Crashed into tunnel side edge!", { 
+                                distFromCenter,
+                                safeWidth,
+                                tunnelEdgeSize,
+                                shipX: shipCenter.x,
+                                tunnelCenterX: segment.position.x
+                            });
+                            this.gameOver = true;
+                            return;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Update tunnel state
+        this.isInTunnel = nowInTunnel;
+
+        // Apply controls only if not in tunnel
+        if (!this.isInTunnel) {
+            // Update ship position based on rotation and velocity (normal controls)
+            this.shipVelocity.x = this.shipRotation * this.gameSpeed;
+            this.shipPosition.x += this.shipVelocity.x;
+        } else {
+            // In tunnel - force to center and disable controls
+            // Smoothly move toward center (slow centering effect)
+            this.shipPosition.x = this.shipPosition.x * 0.9 + tunnelCenterX * 0.1;
+            
+            // Override ship rotation to face forward
+            this.shipRotation = 0;
+        }
+
+        // Move ship forward (always happens)
+        this.shipPosition.z -= this.forwardSpeed;
+
         // Apply jumping physics
         if (this.isJumping) {
-            this.shipPosition.y += this.jumpVelocity;
-            this.jumpVelocity -= 0.01; // Gravity
+            // Only allow jumping if not in tunnel
+            if (!this.isInTunnel) {
+                this.shipPosition.y += this.jumpVelocity;
+                this.jumpVelocity -= 0.01; // Gravity
+            } else {
+                // In tunnel - cancel jump
+                this.isJumping = false;
+                this.jumpVelocity = 0;
+            }
 
             // Only reset jumping if we hit a track segment
             let hitTrack = false;
