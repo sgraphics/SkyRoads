@@ -315,7 +315,7 @@ class Game {
                 const z = -index * 4.5;
                 
                 if (block === '5' || block === '6') {
-                    // Create a normal block for collision detection first
+                    // Create a normal block for collision detection first (tunnel floor)
                     const floorSegment = new THREE.Mesh(
                         this.trackGeometry,
                         new THREE.MeshPhongMaterial({ 
@@ -333,6 +333,27 @@ class Game {
                     // Add the floor block to track for collision detection
                     this.track.push(floorSegment);
                     this.scene.add(floorSegment);
+                    
+                    // We still add the invisible top blocks, but we'll ignore them for collision
+                    const tunnelTopBlock = new THREE.Mesh(
+                        this.trackGeometry,
+                        new THREE.MeshPhongMaterial({ 
+                            color: 0xFF0000,  // Make it red for debugging (will be invisible in final)
+                            transparent: true,
+                            opacity: 0.0  // Completely invisible
+                        })
+                    );
+                    
+                    // Position the top block at the ceiling height of the tunnel
+                    const tunnelFloorY = this.getBlockHeight(block);
+                    const tunnelHeight = 1.75 * 2; // Diameter of tunnel
+                    tunnelTopBlock.position.set(x * 3.5, tunnelFloorY + tunnelHeight, z);
+                    tunnelTopBlock.scale.set(3.5, 0.1, 4.5);
+                    tunnelTopBlock.userData.isTunnelTop = true;
+                    
+                    // We still add these to the track array so we can access them
+                    this.track.push(tunnelTopBlock);
+                    this.scene.add(tunnelTopBlock);
                     
                     // Now create the visual tunnel on top of the floor
                     const tunnelGroup = new THREE.Group();
@@ -358,8 +379,6 @@ class Game {
                     // Rotate rings to match tunnel opening
                     rightRing.rotation.x = -Math.PI / 2;
                     rightRing.rotation.z = -Math.PI / 2;
-
-                    // We don't need a separate floor since we have a block below
                     
                     // Add all parts
                     tunnelGroup.add(outerTunnel);
@@ -590,88 +609,71 @@ class Game {
         const shipCenter = this.shipPosition.clone();
         shipCenter.z += 1;
 
-        // Store previous tunnel state before updating
-        const wasInTunnel = this.isInTunnel;
-        let nowInTunnel = false;
+        // Check if we're on a tunnel block
+        let onTunnelBlock = false;
         let tunnelCenterX = 0;
-        let tunnelBlock = null;
-        let tunnelFloorY = 0;
-        let tunnelTopY = 0;
-        let tunnelHeight = 0;
         
-        // Check if we're on a tunnel block and if we're at the edge
+        // Check if we're hitting a tunnel from above
         for (const segment of this.track) {
             const dx = Math.abs(shipCenter.x - segment.position.x);
             const dz = Math.abs(shipCenter.z - segment.position.z);
             
             if (dx < 1.75 && dz < 2.25) {
+                // Check for tunnel floor collision
                 if (segment.userData && segment.userData.isTunnelBlock) {
-                    nowInTunnel = true;
-                    tunnelCenterX = segment.position.x;
-                    tunnelBlock = segment;
-                    tunnelFloorY = segment.position.y + segment.scale.y; // Floor level
-                    tunnelHeight = 1.75 * 2; // Diameter of tunnel (2 * radius)
-                    tunnelTopY = tunnelFloorY + tunnelHeight; // Top of tunnel
+                    const tunnelFloorY = segment.position.y + segment.scale.y;
+                    const tunnelHeight = 1.75 * 2; // Diameter of tunnel (2 * radius)
+                    const tunnelTopY = tunnelFloorY + tunnelHeight;
                     
-                    // Only check for edge collision when first entering the tunnel
-                    if (!wasInTunnel) {
-                        // Calculate width-wise edges (tunnel width is 3.5 units as set in scaling)
-                        const tunnelWidth = 3.5;
-                        const tunnelEdgeSize = tunnelWidth * 0.2; // 20% of tunnel width
+                    // COMPLETELY REVISED TUNNEL TOP COLLISION:
+                    // 1. Check if the ship is directly above a tunnel (horizontally aligned)
+                    // 2. Check if the ship is at or below the tunnel's top level
+                    // 3. Check if the ship is falling (to ensure we're landing, not jumping up)
+                    if (this.isJumping && 
+                        this.jumpVelocity <= 0 && // Ship is falling or at zero velocity
+                        this.shipPosition.y <= tunnelTopY + 0.5 && // Ship is at or slightly above tunnel top
+                        this.shipPosition.y >= tunnelTopY - 0.5) { // Ship is not too far below tunnel top
                         
-                        // Calculate distance from center to determine if at edge
-                        const distFromCenter = Math.abs(shipCenter.x - segment.position.x);
-                        const safeWidth = (tunnelWidth / 2) - tunnelEdgeSize;
+                        console.log(`Ship Y: ${this.shipPosition.y}, Tunnel Top Y: ${tunnelTopY}`);
+                        console.log("Crashed into top of tunnel!");
+                        this.gameOver = true;
+                        return;
+                    }
+                    
+                    // Check if we should be inside the tunnel
+                    if (Math.abs(this.shipPosition.y - tunnelFloorY) < 0.3) {
+                        onTunnelBlock = true;
+                        tunnelCenterX = segment.position.x;
                         
-                        // If we're too close to the edge (but not in center)
-                        if (distFromCenter > safeWidth) {
-                            // If we're entering the tunnel from the side, game over
-                            console.log("Crashed into tunnel side edge!", { 
-                                distFromCenter,
-                                safeWidth,
-                                tunnelEdgeSize,
-                                shipX: shipCenter.x,
-                                tunnelCenterX: segment.position.x
-                            });
-                            this.gameOver = true;
-                            return;
+                        // Only check for edge collision when entering a tunnel
+                        if (!this.isInTunnel) {
+                            // Calculate width-wise edges
+                            const tunnelWidth = 3.5;
+                            const tunnelEdgeSize = tunnelWidth * 0.2; // 20% of tunnel width
+                            
+                            // Calculate distance from center to determine if at edge
+                            const distFromCenter = Math.abs(shipCenter.x - segment.position.x);
+                            const safeWidth = (tunnelWidth / 2) - tunnelEdgeSize;
+                            
+                            // If we're too close to the edge
+                            if (distFromCenter > safeWidth) {
+                                console.log("Crashed into tunnel side edge!");
+                                this.gameOver = true;
+                                return;
+                            }
                         }
                     }
-                    break;
+                }
+                
+                // Skip tunnel top blocks for collision since we're handling top collision differently
+                if (segment.userData && segment.userData.isTunnelTop) {
+                    continue;
                 }
             }
         }
 
-        // First, handle tunnel entry - determine if we should go on top or inside
-        if (!wasInTunnel && nowInTunnel && tunnelBlock) {
-            // If we're high enough (above or at tunnel height), we should land on top
-            // Otherwise, we should go inside the tunnel
-            console.log("Entering tunnel:", {
-                shipY: this.shipPosition.y,
-                tunnelFloorY: tunnelFloorY,
-                tunnelTopY: tunnelTopY,
-                tunnelHeight: tunnelHeight
-            });
-            
-            const tunnelCeilingHeight = tunnelFloorY + tunnelHeight;
-            
-            // Check if we're high enough to go on top of tunnel
-            if (this.shipPosition.y > tunnelCeilingHeight - 0.5) { // Allow some margin
-                // We're above tunnel, treat as normal block surface
-                console.log("Going on top of tunnel");
-                nowInTunnel = false; // Not considered inside tunnel
-            } else {
-                // We're going inside tunnel - ensure we're on the floor
-                console.log("Going inside tunnel");
-                // If in mid-air or jumping, cancel jump and place on floor
-                this.isJumping = false;
-                this.jumpVelocity = 0;
-                this.shipPosition.y = tunnelFloorY;
-            }
-        }
-
         // Update tunnel state
-        this.isInTunnel = nowInTunnel;
+        this.isInTunnel = onTunnelBlock;
 
         // Apply controls based on whether we're in a tunnel or not
         if (!this.isInTunnel) {
@@ -684,6 +686,7 @@ class Game {
             this.shipPosition.x = this.shipPosition.x * 0.9 + tunnelCenterX * 0.1;
             
             // Ensure we're at floor level if inside tunnel
+            const tunnelFloorY = this.tunnelHeight + 0.1; // Add small offset for the floor thickness
             this.shipPosition.y = tunnelFloorY;
             
             // Override ship rotation to face forward
@@ -693,7 +696,7 @@ class Game {
         // Move ship forward (always happens)
         this.shipPosition.z -= this.forwardSpeed;
 
-        // Apply jumping physics ONLY if not in tunnel
+        // Apply jumping physics only when not in tunnel
         if (this.isJumping) {
             if (!this.isInTunnel) {
                 this.shipPosition.y += this.jumpVelocity;
@@ -702,6 +705,11 @@ class Game {
                 // Only reset jumping if we hit a track segment
                 let hitTrack = false;
                 for (const segment of this.track) {
+                    // Skip tunnel top blocks for collision
+                    if (segment.userData && segment.userData.isTunnelTop) {
+                        continue;
+                    }
+                    
                     const dx = Math.abs(shipCenter.x - segment.position.x);
                     const dz = Math.abs(shipCenter.z - segment.position.z);
                     
@@ -731,6 +739,11 @@ class Game {
             let currentHeight = this.segmentHeight;
 
             for (const segment of this.track) {
+                // Skip tunnel top blocks for collision
+                if (segment.userData && segment.userData.isTunnelTop) {
+                    continue;
+                }
+                
                 const dx = Math.abs(shipCenter.x - segment.position.x);
                 const dz = Math.abs(shipCenter.z - segment.position.z);
                 
