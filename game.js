@@ -112,13 +112,18 @@ class Game {
         this.renderer.setClearColor(0x000000, 1);
 
         // Add ambient light (only for main game scene)
-        const ambient = new THREE.AmbientLight(0xffffff, 0.1);
+        const ambient = new THREE.AmbientLight(0xffffff, 0.4);  // Increased from 0.1 to 0.4
         this.scene.add(ambient);
 
         // Add directional light (only for main game scene)
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-        directionalLight.position.set(0, 10, 0);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);  // Increased from 0.5 to 0.8
+        directionalLight.position.set(5, 10, 5);  // Angled light position instead of directly above
         this.scene.add(directionalLight);
+        
+        // Add a second directional light from another angle
+        const secondaryLight = new THREE.DirectionalLight(0xffffee, 0.5);  // Slight warm tint
+        secondaryLight.position.set(-5, 8, -5);  // Light from opposite angle
+        this.scene.add(secondaryLight);
 
         // Create background first
         this.createBackground();
