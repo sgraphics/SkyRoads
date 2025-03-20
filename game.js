@@ -537,16 +537,16 @@ class Game {
 
     getBlockColor(block) {
         const colors = {
-            '1': 0xFF69B4, // Hot pink (was FFB6C1)
-            '2': 0x32CD32, // Lime green (was 98FB98)
-            '3': 0x00CED1, // Dark turquoise (was AFEEEE)
-            '4': 0xFFA500, // Orange (was FFDAB9)
-            '5': 0x4169E1, // Royal blue for tunnel (was B0C4DE)
-            '6': 0x1E90FF, // Dodger blue for tunnel (was 8794BF)
-            '7': 0xFFD700, // Gold for raised block (was FFFACD)
-            '8': 0xFF8C00, // Dark orange for raised block (was FFE4B5)
-            '9': 0xFF4500, // Orange red for speed up (was FFB6B6)
-            '0': 0x00FF00  // Pure green for slow down (was 98FB98)
+            '1': 0xFF00AA, // Hot magenta pink
+            '2': 0x00FF00, // Pure lime green
+            '3': 0x00FFFF, // Pure cyan 
+            '4': 0xFF8000, // Intense orange
+            '5': 0x0080FF, // Bright blue for tunnel
+            '6': 0x00BFFF, // Deep sky blue for tunnel
+            '7': 0xFFD700, // True gold for raised block
+            '8': 0xFF6600, // Vivid orange for raised block
+            '9': 0xFF0000, // Pure red for speed up
+            '0': 0x00FF40  // Bright green for slow down
         };
         return colors[block] || 0xFFFFFF;
     }
