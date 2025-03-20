@@ -326,11 +326,83 @@ class Game {
     }
 
     createShip() {
-        const geometry = new THREE.ConeGeometry(0.5, 2, 8);
-        const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-        this.ship = new THREE.Mesh(geometry, material);
-        this.ship.rotation.x = Math.PI / 2;
+        // Create a group to hold all ship parts
+        this.ship = new THREE.Group();
+        
+        // Main body - elongated sphere
+        const bodyGeometry = new THREE.SphereGeometry(0.4, 16, 16);
+        bodyGeometry.scale(1.2, 0.7, 2.2); // Elongate it
+        const bodyMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xffffff,  // White
+            specular: 0x555555,
+            shininess: 70
+        });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        // Rotate the body 180 degrees to face forward
+        body.rotation.y = Math.PI;
+        
+        // Wing - fatter triangle shape
+        const wingShape = new THREE.Shape();
+        wingShape.moveTo(0, 1.0);     // Point at front (now using positive Z as forward)
+        wingShape.lineTo(-1.0, -0.5); // Back left
+        wingShape.lineTo(1.0, -0.5);  // Back right
+        wingShape.lineTo(0, 1.0);
+        
+        const wingGeometry = new THREE.ShapeGeometry(wingShape);
+        const wingMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xffffff,  // White
+            specular: 0x555555,
+            shininess: 50
+        });
+        const wing = new THREE.Mesh(wingGeometry, wingMaterial);
+        wing.position.set(0, 0.0, 0.2); // Raised to avoid clipping
+        wing.rotation.x = -Math.PI / 2; // Lay flat
+        
+        // Create two side thrusters (elongated spheres)
+        const thrusterGeometry = new THREE.SphereGeometry(0.25, 12, 12);
+        thrusterGeometry.scale(1, 1, 1.7); // Elongate them
+        const thrusterMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xffffff, // White
+            specular: 0x555555,
+            shininess: 80
+        });
+        
+        // Left thruster
+        const leftThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        leftThruster.position.set(-0.45, 0, 0.3); // Position on left side
+        
+        // Right thruster
+        const rightThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        rightThruster.position.set(0.45, 0, 0.3); // Position on right side
+        
+        // Add details - small cockpit window
+        const cockpitGeometry = new THREE.SphereGeometry(0.2, 12, 12);
+        cockpitGeometry.scale(1, 0.7, 0.3); // Flatten it
+        const cockpitMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0x88ccff, // Blue window
+            specular: 0xffffff,
+            shininess: 100,
+            transparent: true,
+            opacity: 0.8
+        });
+        const cockpit = new THREE.Mesh(cockpitGeometry, cockpitMaterial);
+        cockpit.position.set(0, 0.1, -0.4); // Position at front-top
+        
+        // Add all parts to the ship group
+        this.ship.add(body);
+        this.ship.add(wing);
+        this.ship.add(leftThruster);
+        this.ship.add(rightThruster);
+        this.ship.add(cockpit);
+        
+        // Don't rotate the entire ship - each part is positioned correctly
+        // The main body is rotated individually instead
+        
         this.scene.add(this.ship);
+        
+        // Save references to thrusters for flame effects
+        this.leftThruster = leftThruster;
+        this.rightThruster = rightThruster;
     }
 
     generateTrackFromLevel() {
@@ -822,7 +894,20 @@ class Game {
 
         // Update ship position
         this.ship.position.copy(this.shipPosition);
-
+        
+        // Add horizontal turning effect (yaw) when turning
+        if (!this.isInTunnel) {
+            // Now the base orientation is 0 (not Math.PI)
+            // Add a rotation offset when turning
+            const turnAmount = -this.shipRotation * 1; // 50% less pronounced as requested
+            
+            // Apply the turn rotation directly (no need to add Math.PI)
+            this.ship.rotation.y = turnAmount;
+        } else {
+            // In tunnel, face straight ahead
+            this.ship.rotation.y = 0;
+        }
+        
         // Update camera to follow ship
         this.updateCamera();
 
@@ -1184,6 +1269,62 @@ class Game {
         
         // Add to overlay scene
         this.overlayScene.add(this.gameOverText);
+    }
+
+    // Update the exhaust flames method to attach flames to the thrusters
+    createExhaustFlames() {
+        // Initialize exhaustFlames if it doesn't exist
+        if (!this.exhaustFlames) {
+            this.exhaustFlames = [];
+        }
+        
+        // Clean up any existing flames
+        if (this.exhaustFlames.length > 0) {
+            for (const flame of this.exhaustFlames) {
+                flame.parent.remove(flame);
+            }
+            this.exhaustFlames = [];
+        }
+
+        // Create a material with the burn texture that is transparent
+        const flameMaterial = new THREE.MeshBasicMaterial({
+            map: this.burnTexture,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending, // Additive blending for a glow effect
+            color: 0xffaa00 // Slightly orange tint
+        });
+
+        // Create flames for both thrusters
+        if (this.leftThruster && this.rightThruster) {
+            // Parameters for flames
+            const flameParams = [
+                { parent: this.leftThruster, posOffset: new THREE.Vector3(0, 0, 0.7) },
+                { parent: this.rightThruster, posOffset: new THREE.Vector3(0, 0, 0.7) }
+            ];
+            
+            for (const params of flameParams) {
+                // Create crossed flame planes for a 3D effect
+                for (let i = 0; i < 2; i++) {
+                    const flameGeometry = new THREE.PlaneGeometry(0.4, 0.7);
+                    const flame = new THREE.Mesh(flameGeometry, flameMaterial.clone());
+                    flame.position.copy(params.posOffset);
+                    flame.rotation.z = i * Math.PI / 2; // Rotate 0 and 90 degrees
+                    
+                    // Store the flame's original scale for animation
+                    flame.userData = {
+                        originalScale: new THREE.Vector3(1, 1, 1),
+                        pulseFactor: 0.3,
+                        pulseSpeed: 0.07 + (Math.random() * 0.05),
+                        pulseOffset: Math.random() * Math.PI * 2
+                    };
+                    
+                    params.parent.add(flame);
+                    this.exhaustFlames.push(flame);
+                }
+            }
+        }
     }
 }
 
