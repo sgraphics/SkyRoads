@@ -81,6 +81,14 @@ class Game {
             jump: 0.4,        // Middle ground between 0.3 and 0.5
             gravity: 0.015    // Middle ground between 0.01 and 0.02
         };
+
+        // Add these properties for speed control
+        this.currentSpeed = 60; // Starting speed value
+        this.minSpeed = 20;     // Minimum speed
+        this.maxSpeed = 100;    // Maximum speed
+        this.speedBarMesh = null; // Will hold the speed indicator mesh
+        this.speedBarContainer = null; // Container for speed bar elements
+        this.speedIncrement = 5; // How much speed changes with each keypress
     }
 
     async loadLevel() {
@@ -138,6 +146,9 @@ class Game {
         // Disable tone mapping
         this.renderer.toneMapping = THREE.NoToneMapping;
         this.renderer.toneMappingExposure = 1; // or adjust as you like
+
+        // Add this line to create the speed indicator
+        this.createSpeedIndicator();
 
         // Start animation loop with timestamp
         requestAnimationFrame((time) => this.animate(time));
@@ -564,10 +575,19 @@ class Game {
                 return;
             }
             
-            // Normal gameplay controls (don't apply if in tunnel)
-            if (this.isInTunnel) return;
-            
+            // Add speed control with up/down arrows
             switch (event.key) {
+                case 'ArrowUp':
+                    // Increase speed
+                    this.currentSpeed = Math.min(this.currentSpeed + this.speedIncrement, this.maxSpeed);
+                    this.updateSpeedIndicator();
+                    break;
+                case 'ArrowDown':
+                    // Decrease speed
+                    this.currentSpeed = Math.max(this.currentSpeed - this.speedIncrement, this.minSpeed);
+                    this.updateSpeedIndicator();
+                    break;
+                // Normal gameplay controls (don't apply if in tunnel)
                 case 'ArrowLeft':
                     this.leftKeyPressed = true;
                     this.shipRotation = -0.25;
@@ -1051,8 +1071,8 @@ class Game {
         // Use a simple scaling factor
         const timeFactor = 1.0; 
         
-        // Set speeds directly
-        this.forwardSpeed = this.baseSpeed.forward;
+        // Set speeds based on currentSpeed (fix here)
+        this.forwardSpeed = this.baseSpeed.forward * (this.currentSpeed / 60);
         
         // Only update these if not in tunnel
         if (!this.isInTunnel) {
@@ -1085,6 +1105,9 @@ class Game {
         
         // Run update directly for better performance
         this.fixedUpdate(deltaTime);
+        
+        // Add this line to ensure speed bar is always updated
+        this.updateSpeedIndicator();
         
         // Animate exhaust flames if they exist and the ship is visible
         if (this.exhaustFlames && this.exhaustFlames.length > 0 && this.ship.visible) {
@@ -1325,6 +1348,95 @@ class Game {
                 }
             }
         }
+    }
+
+    createSpeedIndicator() {
+        // Remove any existing ThreeJS speed indicator
+        if (this.speedBarContainer) {
+            this.overlayScene.remove(this.speedBarContainer);
+            this.speedBarContainer = null;
+        }
+        
+        if (this.speedBarMesh && this.speedBarMesh.material) {
+            if (this.speedBarMesh.material.map) {
+                this.speedBarMesh.material.map.dispose();
+            }
+            this.speedBarMesh.material.dispose();
+        }
+        
+        if (this.speedBarMesh && this.speedBarMesh.geometry) {
+            this.speedBarMesh.geometry.dispose();
+        }
+        
+        this.speedBarMesh = null;
+        
+        // Create a direct HTML element instead
+        const speedDisplay = document.createElement('div');
+        speedDisplay.id = 'speed-display';
+        speedDisplay.style.position = 'absolute';
+        speedDisplay.style.top = '20px';
+        speedDisplay.style.right = '20px';
+        speedDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+        speedDisplay.style.color = '#ffffff';
+        speedDisplay.style.padding = '10px 15px';
+        speedDisplay.style.border = '2px solid white';
+        speedDisplay.style.fontFamily = 'Arial, sans-serif';
+        speedDisplay.style.fontSize = '24px';
+        speedDisplay.style.fontWeight = 'bold';
+        speedDisplay.style.zIndex = '1000';
+        
+        // Add to document
+        document.body.appendChild(speedDisplay);
+        
+        // Store reference
+        this.speedDisplay = speedDisplay;
+        
+        // Initial update
+        this.updateSpeedIndicator();
+    }
+
+    updateSpeedIndicator() {
+        // Skip updates if display doesn't exist
+        if (!this.speedDisplay) return;
+        
+        // Calculate percentage (with fallback to prevent NaN)
+        let speedPercent = 50;
+        try {
+            speedPercent = Math.round(((this.currentSpeed - this.minSpeed) / (this.maxSpeed - this.minSpeed)) * 100);
+            
+            // Validate the result
+            if (isNaN(speedPercent)) {
+                speedPercent = 50;
+                console.error("Speed calculation resulted in NaN:", {
+                    currentSpeed: this.currentSpeed,
+                    minSpeed: this.minSpeed,
+                    maxSpeed: this.maxSpeed
+                });
+            }
+        } catch (e) {
+            console.error("Error calculating speed:", e);
+        }
+        
+        // Determine color based on speed
+        let textColor;
+        if (speedPercent < 30) {
+            textColor = '#00ff00'; // Green for low speed
+        } else if (speedPercent < 70) {
+            textColor = '#ffff00'; // Yellow for medium speed
+        } else {
+            textColor = '#ff0000'; // Red for high speed
+        }
+        
+        // Update the HTML directly
+        this.speedDisplay.innerHTML = `SPEED <span style="color:${textColor}">${speedPercent}%</span>`;
+        
+        // Log the values
+        console.log("HTML Speed:", {
+            current: this.currentSpeed,
+            min: this.minSpeed,
+            max: this.maxSpeed,
+            percent: speedPercent
+        });
     }
 }
 
