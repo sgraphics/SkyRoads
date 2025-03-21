@@ -424,19 +424,18 @@ class Game {
     generateTrackFromLevel() {
         if (!this.levelData) return;
         
-        // Split into rows and filter out any lines containing < > tags
+        // Split into rows and filter out special tag lines
         const rows = this.levelData.trim()
             .split('\n')
-            .filter(row => !row.includes('<'))
+            .filter(row => !row.includes('<start>') && !row.includes('<')) // Filter out any tag lines
+            .filter(row => row.trim().length > 0) // Remove empty lines
             .reverse();
         
         const trackWidth = 7;
         
         rows.forEach((row, index) => {
-            // Ensure row is exactly 7 characters, padding with spaces if shorter
-            const paddedRow = row.padEnd(trackWidth, ' ');
-            // Take only first 7 characters in case it's longer
-            const blocks = paddedRow.slice(0, trackWidth).split('');
+            // Take only the first 7 characters
+            const blocks = row.substring(0, trackWidth).padEnd(trackWidth, ' ').split('');
             
             blocks.forEach((block, columnIndex) => {
                 // Skip if it's a space, dot, or any other non-track character
@@ -542,16 +541,16 @@ class Game {
 
     getBlockColor(block) {
         const colors = {
-            '1': 0xFF00AA, // Hot magenta pink
-            '2': 0x00FF00, // Pure lime green
-            '3': 0x00FFFF, // Pure cyan 
-            '4': 0xFF8000, // Intense orange
-            '5': 0x0080FF, // Bright blue for tunnel
-            '6': 0x00BFFF, // Deep sky blue for tunnel
-            '7': 0xFFD700, // True gold for raised block
-            '8': 0xFF6600, // Vivid orange for raised block
-            '9': 0xFF0000, // Pure red for speed up
-            '0': 0x00FF40  // Bright green for slow down
+            '1': 0xFF00AA, // Hot magenta pink, normal block color 1
+            '2': 0x00FF00, // Pure lime green, normal block color 2
+            '3': 0x00FFFF, // Pure cyan, normal block color 3
+            '4': 0xFF8000, // Intense orange, normal block color 4
+            '5': 0x0080FF, // Bright blue for tunnel, tunnel color 1
+            '6': 0x00BFFF, // Deep sky blue for tunnel, tunnel color 2
+            '7': 0xFFD700, // True gold for raised block, raised block color 1
+            '8': 0xFF6600, // Vivid orange for raised block, raised block color 2
+            '9': 0xFF0000, // Pure red for speed up, boost block color
+            '0': 0x00FF40  // Bright green for slow down, slippery block color
         };
         return colors[block] || 0xFFFFFF;
     }
@@ -634,12 +633,16 @@ class Game {
     }
 
     checkCollisions(shipCenter) {
+        // Remove the boundary check that kills players at the edges
+        // The line below is what's causing your issue - commenting it out
+        /*
         // Check if ship is too far left or right
         if (Math.abs(this.shipPosition.x) > this.trackWidth * 1.5) {
             this.createExplosionEffect();  // Add explosion effect
             this.gameOver = true;
             return;
         }
+        */
 
         // Check if ship has fallen too low
         if (this.shipPosition.y < -5) {
