@@ -45,7 +45,7 @@ class Game {
         this.rightKeyPressed = false; // Track right key state
 
         // Camera offset from ship (adjusted for better view)
-        this.cameraOffset = new THREE.Vector3(0, 8, 15); // Increased height and distance
+        this.cameraOffset = new THREE.Vector3(0, 6, 15); // Reduced height from 8 to 6
 
         this.currentLevel = 1;
         this.levelData = null;
@@ -701,8 +701,8 @@ class Game {
         this.camera.position.y = this.cameraOffset.y; // Fixed height
         this.camera.position.z = this.shipPosition.z + this.cameraOffset.z;
         
-        // Set fixed camera rotation to look down at the track (less steep angle)
-        this.camera.rotation.x = -Math.PI / 6; // 30-degree downward angle (was 45)
+        // Set fixed camera rotation to look more toward horizon (less downward angle)
+        this.camera.rotation.x = -Math.PI / 9; // ~20-degree downward angle (was -Math.PI/6 which is 30 degrees)
         this.camera.rotation.y = 0;
         this.camera.rotation.z = 0;
     }
