@@ -49,6 +49,7 @@ class Game {
 
         this.currentLevel = 1;
         this.levelData = null;
+        this.levelColors = null; // Add this property to store level colors
 
         // Add this line to create the track geometry
         this.trackGeometry = new THREE.BoxGeometry(1, 1, 1);
@@ -89,10 +90,25 @@ class Game {
         this.speedBarMesh = null; // Will hold the speed indicator mesh
         this.speedBarContainer = null; // Container for speed bar elements
         this.speedIncrement = 5; // How much speed changes with each keypress
+
+        // Add these properties for finish state
+        this.finishReached = false;
+        this.finishText = null;
+        this.finishFadeInterval = null;
+        
+        // Load saved level from localStorage if available
+        const savedLevel = localStorage.getItem('currentLevel');
+        if (savedLevel) {
+            this.currentLevel = parseInt(savedLevel);
+        }
     }
 
     async loadLevel() {
         try {
+            // Load colors from JSON first
+            await this.loadLevelColors();
+            
+            // Then load track layout
             const response = await fetch(`assets/${this.currentLevel}.txt`);
             this.levelData = await response.text();
             this.generateTrackFromLevel();
@@ -105,6 +121,64 @@ class Game {
         } catch (error) {
             console.error('Error loading level:', error);
         }
+    }
+
+    // Add this new method to load colors from the JSON file
+    async loadLevelColors() {
+        try {
+            const response = await fetch(`assets/${this.currentLevel}.json`);
+            this.levelColors = await response.json();
+            console.log(`Loaded colors for level ${this.currentLevel}:`, this.levelColors);
+        } catch (error) {
+            console.error('Error loading level colors:', error);
+            // Fallback to default colors if JSON loading fails
+            this.levelColors = null;
+        }
+    }
+
+    // Update this method to use the colors from the JSON file
+    getBlockColor(block) {
+        // If we have colors from the JSON file, use them
+        if (this.levelColors && this.levelColors[block]) {
+            return parseInt(this.levelColors[block].replace('0x', ''), 16);
+        }
+        
+        // Otherwise, use default fallback colors
+        const defaultColors = {
+            '1': 0xFF00AA,
+            '2': 0x00FF00,
+            '3': 0x00FFFF,
+            '4': 0xFF8000,
+            '5': 0x0080FF,
+            '6': 0x00BFFF,
+            '7': 0xFFD700,
+            '8': 0xFF6600,
+            '9': 0xFF0000,
+            '0': 0x00FF40,
+            'F': 0x00FF00 // Finish line color
+        };
+        
+        return defaultColors[block] || 0xFFFFFF;
+    }
+
+    // Optional method to update background image based on JSON
+    updateBackgroundImage() {
+        if (!this.levelColors || !this.levelColors.Background) return;
+        
+        // Replace current background texture
+        const newBgTexture = this.textureLoader.load(`./assets/bg_${this.currentLevel}.webp`, () => {
+            // Update background when image is loaded
+            this.bgTexture = newBgTexture;
+            
+            // Force background update
+            if (this.bgScene && this.bgScene.children.length > 0) {
+                const bgMesh = this.bgScene.children[0];
+                if (bgMesh && bgMesh.material) {
+                    bgMesh.material.map = newBgTexture;
+                    bgMesh.material.needsUpdate = true;
+                }
+            }
+        });
     }
 
     init() {
@@ -154,6 +228,10 @@ class Game {
 
         // Add this line to create the speed indicator
         this.createSpeedIndicator();
+
+        // Create both text elements
+        this.createGameOverText();
+        this.createFinishText();
 
         // Start animation loop with timestamp
         requestAnimationFrame((time) => this.animate(time));
@@ -427,13 +505,47 @@ class Game {
         // Split into rows and filter out special tag lines
         const rows = this.levelData.trim()
             .split('\n')
-            .filter(row => !row.includes('<start>') && !row.includes('<')) // Filter out any tag lines
-            .filter(row => row.trim().length > 0) // Remove empty lines
+            .filter(row => !row.includes('<'))
             .reverse();
         
         const trackWidth = 7;
         
+        // Create a flag to identify finish line
+        let finishLineAdded = false;
+        
         rows.forEach((row, index) => {
+            // Add finish line at the end
+            if (index === 0 && !finishLineAdded) {
+                const finishRow = "FFFFFFF";
+                const finishBlocks = finishRow.substring(0, trackWidth).split('');
+                
+                finishBlocks.forEach((block, columnIndex) => {
+                    const x = columnIndex - 3;
+                    const z = -index * 4.5;
+                    
+                    // Create finish blocks
+                    const segment = new THREE.Mesh(
+                        this.trackGeometry,
+                        new THREE.MeshPhongMaterial({ 
+                            color: this.getBlockColor('F'), // Use 'F' for finish color
+                            emissive: 0x003300, // Slight glow
+                            emissiveIntensity: 0.3
+                        })
+                    );
+                    
+                    segment.position.set(x * 3.5, this.segmentHeight, z);
+                    segment.scale.set(3.5, this.segmentHeight, 4.5);
+                    
+                    // Mark as finish block
+                    segment.userData.isFinish = true;
+                    
+                    this.track.push(segment);
+                    this.scene.add(segment);
+                });
+                
+                finishLineAdded = true;
+            }
+            
             // Take only the first 7 characters
             const blocks = row.substring(0, trackWidth).padEnd(trackWidth, ' ').split('');
             
@@ -539,22 +651,6 @@ class Game {
         });
     }
 
-    getBlockColor(block) {
-        const colors = {
-            '1': 0xFF00AA, // Hot magenta pink, normal block color 1
-            '2': 0x00FF00, // Pure lime green, normal block color 2
-            '3': 0x00FFFF, // Pure cyan, normal block color 3
-            '4': 0xFF8000, // Intense orange, normal block color 4
-            '5': 0x0080FF, // Bright blue for tunnel, tunnel color 1
-            '6': 0x00BFFF, // Deep sky blue for tunnel, tunnel color 2
-            '7': 0xFFD700, // True gold for raised block, raised block color 1
-            '8': 0xFF6600, // Vivid orange for raised block, raised block color 2
-            '9': 0xFF0000, // Pure red for speed up, boost block color
-            '0': 0x00FF40  // Bright green for slow down, slippery block color
-        };
-        return colors[block] || 0xFFFFFF;
-    }
-
     getBlockHeight(block) {
         switch (block) {
             case '5':
@@ -570,16 +666,23 @@ class Game {
 
     setupControls() {
         document.addEventListener('keydown', (event) => {
-            // Handle controls differently if game is over
+            // Handle finish state - only progress when finish message is visible
+            if (this.finishReached && this.finishText && this.finishText.visible) {
+                if (event.key === ' ') {
+                    this.loadNextLevel();
+                    return;
+                }
+            }
+            
+            // Handle game over state
             if (this.gameOver) {
                 if (event.key === ' ') {
-                    // Restart the game when spacebar is pressed
                     this.restartGame();
                 }
                 return;
             }
             
-            // Add speed control with up/down arrows
+            // Normal gameplay controls
             switch (event.key) {
                 case 'ArrowUp':
                     // Increase speed
@@ -591,7 +694,6 @@ class Game {
                     this.currentSpeed = Math.max(this.currentSpeed - this.speedIncrement, this.minSpeed);
                     this.updateSpeedIndicator();
                     break;
-                // Normal gameplay controls (don't apply if in tunnel)
                 case 'ArrowLeft':
                     this.leftKeyPressed = true;
                     this.shipRotation = -0.25;
@@ -603,7 +705,7 @@ class Game {
                 case ' ':
                     if (!this.isJumping) {
                         this.isJumping = true;
-                        this.jumpVelocity = this.baseSpeed.jump; // Use our new middle ground value
+                        this.jumpVelocity = this.baseSpeed.jump;
                     }
                     break;
             }
@@ -633,20 +735,16 @@ class Game {
     }
 
     checkCollisions(shipCenter) {
-        // Remove the boundary check that kills players at the edges
-        // The line below is what's causing your issue - commenting it out
-        /*
         // Check if ship is too far left or right
         if (Math.abs(this.shipPosition.x) > this.trackWidth * 1.5) {
-            this.createExplosionEffect();  // Add explosion effect
+            this.createExplosionEffect();
             this.gameOver = true;
             return;
         }
-        */
 
         // Check if ship has fallen too low
         if (this.shipPosition.y < -5) {
-            this.createExplosionEffect();  // Add explosion effect
+            this.createExplosionEffect();
             this.gameOver = true;
             return;
         }
@@ -682,6 +780,12 @@ class Game {
                     
                     if (dx < 1.75 && dz < 2.25) {
                         isOnTrack = true;
+                        
+                        // Check if this is a finish block
+                        if (segment.userData && segment.userData.isFinish && !this.finishReached) {
+                            this.showFinishMessage();
+                        }
+                        
                         break;
                     }
                 }
@@ -753,7 +857,12 @@ class Game {
     }
 
     updateShip() {
+        // Add this check for game over but make sure fall detection still happens
         if (this.gameOver) {
+            // If game over, check if we need to trigger game over from falling too far
+            if (this.shipPosition.y < -5 && this.ship.visible) {
+                this.createExplosionEffect();
+            }
             return;
         }
 
@@ -855,7 +964,7 @@ class Game {
         if (this.isJumping) {
             if (!this.isInTunnel) {
                 this.shipPosition.y += this.jumpVelocity;
-                this.jumpVelocity -= 0.01; // Gravity
+                this.jumpVelocity -= 0.01; // Restore original gravity value
 
                 // Only reset jumping if we hit a track segment
                 let hitTrack = false;
@@ -876,12 +985,13 @@ class Game {
                         this.isJumping = false;
                         this.jumpVelocity = 0;
                         hitTrack = true;
+                        console.log("Landing on track");
                         break;
                     }
                 }
 
                 if (!hitTrack && this.jumpVelocity < 0) {
-                    this.jumpVelocity -= 0.01; // Continue falling
+                    this.jumpVelocity -= 0.01; // Restore original additional gravity
                 }
             } else {
                 // In tunnel - cancel any jumping
@@ -1079,7 +1189,7 @@ class Game {
         // Use a simple scaling factor
         const timeFactor = 1.0; 
         
-        // Set speeds based on currentSpeed (fix here)
+        // Set speeds based on currentSpeed
         this.forwardSpeed = this.baseSpeed.forward * (this.currentSpeed / 60);
         
         // Only update these if not in tunnel
@@ -1093,7 +1203,7 @@ class Game {
             }
         }
         
-        // Use fixed gravity value
+        // Use fixed gravity value - restore this line
         if (this.isJumping && !this.isInTunnel) {
             this.jumpVelocity -= this.baseSpeed.gravity;
         }
@@ -1186,6 +1296,13 @@ class Game {
             this.renderer.render(this.overlayScene, this.overlayCamera);
         }
         this.renderer.autoClear = true;
+        
+        // Don't move the camera forward if game is over
+        if (this.gameOver) {
+            // Keep camera at last position
+        } else {
+            // Normal camera update happens in updateShip
+        }
         
         // Continue animation loop
         requestAnimationFrame((time) => this.animate(time));
@@ -1445,6 +1562,131 @@ class Game {
             max: this.maxSpeed,
             percent: speedPercent
         });
+    }
+
+    // Add methods for finish message
+    createFinishText() {
+        // Create a canvas to render text
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = 1024;
+        canvas.height = 256;
+        
+        // Draw background rectangle
+        context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw border - green for finish
+        context.strokeStyle = '#00FF00';
+        context.lineWidth = 8;
+        context.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+        
+        // Draw text
+        context.font = 'bold 72px Arial';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillStyle = '#00FF00';
+        context.fillText('FINISH!', canvas.width / 2, canvas.height / 2 - 40);
+        
+        context.font = 'bold 36px Arial';
+        context.fillStyle = '#FFFFFF';
+        context.fillText('Press SPACE to continue', canvas.width / 2, canvas.height / 2 + 40);
+        
+        // Create texture from canvas
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        
+        // Create material and geometry
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0,
+            depthTest: false,
+            depthWrite: false
+        });
+        
+        // Size the text to look good on screen
+        const screenAspect = window.innerWidth / window.innerHeight;
+        const width = 1.5;
+        const height = width * (canvas.height / canvas.width);
+        
+        const geometry = new THREE.PlaneGeometry(width, height);
+        this.finishText = new THREE.Mesh(geometry, material);
+        
+        // Position it center of screen
+        this.finishText.position.set(0, 0, 0);
+        this.finishText.visible = false; // Initially hidden
+        
+        // Add to overlay scene
+        this.overlayScene.add(this.finishText);
+    }
+
+    showFinishMessage() {
+        // Set finish reached flag
+        this.finishReached = true;
+        
+        // Show finish text with fade-in animation
+        if (this.finishText) {
+            // Make sure the text is visible before fading in
+            this.finishText.visible = true;
+            
+            // Clear any existing fade animation first
+            if (this.finishFadeInterval) {
+                clearInterval(this.finishFadeInterval);
+                this.finishFadeInterval = null;
+            }
+            
+            this.finishText.material.opacity = 0;
+            
+            // Animate fade-in
+            const fadeInSteps = 20;
+            let step = 0;
+            
+            this.finishFadeInterval = setInterval(() => {
+                step++;
+                this.finishText.material.opacity = step / fadeInSteps;
+                
+                if (step >= fadeInSteps) {
+                    clearInterval(this.finishFadeInterval);
+                    this.finishFadeInterval = null;
+                }
+            }, 50);
+        }
+    }
+
+    loadNextLevel() {
+        // Clear finish state
+        this.finishReached = false;
+        
+        // Hide finish text
+        if (this.finishText) {
+            this.finishText.material.opacity = 0;
+            this.finishText.visible = false;
+        }
+        
+        // Increment level
+        this.currentLevel++;
+        
+        // Check for final level wrap around (we have 3 levels)
+        if (this.currentLevel > 3) {
+            this.currentLevel = 1;
+        }
+        
+        // Save to localStorage
+        localStorage.setItem('currentLevel', this.currentLevel.toString());
+        
+        // Clear existing track
+        for (const segment of this.track) {
+            this.scene.remove(segment);
+        }
+        this.track = [];
+        
+        // Reset ship position
+        this.shipPosition.set(0, this.segmentHeight, 0);
+        this.ship.position.copy(this.shipPosition);
+        
+        // Load the new level
+        this.loadLevel();
     }
 }
 
